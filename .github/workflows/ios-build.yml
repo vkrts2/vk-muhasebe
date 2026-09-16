@@ -11,6 +11,8 @@ jobs:
   build-ios:
     name: Build iOS IPA (ARM64 Unsigned)
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: ⬇️ Checkout Repository
@@ -72,3 +74,14 @@ jobs:
           name: VK-iOS-IPA
           path: output/VK.ipa
           retention-days: 7
+
+      - name: 📢 Release VK.ipa (Public Direct Download)
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: latest-ios
+          name: "VK Mobile iOS IPA (Latest Build)"
+          body: "GitHub Actions tarafından derlenen en güncel VK iOS (.ipa) paketi."
+          files: output/VK.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
