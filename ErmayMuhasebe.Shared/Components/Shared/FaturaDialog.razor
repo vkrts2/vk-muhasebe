@@ -198,8 +198,11 @@
                     </div>
 
                     <div class="mt-auto d-flex flex-column gap-2">
-                        <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true" Style="height: 50px; font-weight: 900; border-radius: 12px; font-size: 16px;" OnClick="Kaydet">KAYDET VE KAPAT [F4]</MudButton>
-                        <MudButton Variant="Variant.Text" Color="Color.Inherit" FullWidth="true" OnClick="Cancel" Style="opacity: 0.5;">Vazgeç [ESC]</MudButton>
+                        @if (!ReadOnly)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true" Style="height: 50px; font-weight: 900; border-radius: 12px; font-size: 16px;" OnClick="Kaydet">KAYDET VE KAPAT [F4]</MudButton>
+                        }
+                        <MudButton Variant="Variant.Text" Color="Color.Inherit" FullWidth="true" OnClick="Cancel" Style="opacity: 0.5;">@(ReadOnly ? "Kapat [ESC]" : "Vazgeç [ESC]")</MudButton>
                     </div>
                 </MudStack>
             </div>
@@ -213,6 +216,8 @@
     [Parameter] public string CariUnvan { get; set; } = "";
     [Parameter] public string IslemTipi { get; set; } = "Satis";
     [Parameter] public Fatura? ExistingFatura { get; set; }
+    [Parameter] public int? ExistingFaturaId { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public List<FaturaKalemi>? PreloadedItems { get; set; }
 
     private List<CariKart> allCariler = new();
@@ -233,6 +238,11 @@
     {
         allCariler = await DbService.GetCarilerAsync();
         
+        if (ExistingFatura == null && ExistingFaturaId.HasValue && ExistingFaturaId.Value > 0)
+        {
+            ExistingFatura = await DbService.GetFaturaAsync(ExistingFaturaId.Value);
+        }
+
         if (ExistingFatura != null)
         {
             IslemTipi = ExistingFatura.Tur ?? "Satis";
@@ -312,10 +322,15 @@
 
     private async Task Kaydet()
     {
+        if (ReadOnly) return;
         if (selectedCari == null) { Snackbar.Add("Lütfen cari seçiniz.", Severity.Warning); return; }
         if (!faturaKalemleri.Any()) { Snackbar.Add("En az bir kalem eklemelisiniz.", Severity.Warning); return; }
 
         var fatura = ExistingFatura ?? new Fatura();
+        if (ExistingFatura != null && ExistingFatura.Id > 0)
+        {
+            fatura.Id = ExistingFatura.Id;
+        }
         fatura.CariId = selectedCari.Id;
         fatura.CariUnvan = selectedCari.Unvan;
         fatura.Tarih = faturaTarihi ?? DateTime.Now;
@@ -327,7 +342,15 @@
         fatura.GenelToplam = genelToplam;
 
         var detaylar = faturaKalemleri.Select(k => new FaturaDetay {
-            StokId = k.StokId, StokAdi = k.UrunAdi, Miktar = k.Miktar, Birim = k.Birim, BirimFiyat = k.BirimFiyat, KDVOrani = (int)k.KDVOrani
+            FaturaId = fatura.Id,
+            StokId = k.StokId, 
+            StokAdi = k.UrunAdi, 
+            Miktar = k.Miktar, 
+            Birim = k.Birim, 
+            BirimFiyat = k.BirimFiyat, 
+            KDVOrani = (int)k.KDVOrani,
+            ToplamTutar = k.Toplam,
+            KDVTutari = k.KDVTutari
         }).ToList();
 
         try {

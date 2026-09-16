@@ -48,7 +48,10 @@ import {
   splitAccounts,
   mergeKasalar,
 } from "../services/firebase";
-import { saveFinancialTransaction } from "../services/transactionService";
+import {
+  saveFinancialTransaction,
+  deleteFinancialTransaction,
+} from "../services/transactionService";
 import {
   hesapKarneler,
   hesapAlisFaturaKarnesi,
@@ -345,7 +348,8 @@ function SwipeableOverlay({
   );
 }
 
-export default function FinansScreen({ route }: any) {
+export default function FinansScreen({ route, navigation }: any) {
+  const loadedEditIdRef = useRef<any>(null);
   const [bankalar, setBankalar] = useState<any[]>([]);
   const [kasalar, setKasalar] = useState<any[]>([]);
   const [kasaHareketler, setKasaHareketler] = useState<any[]>([]);
@@ -659,25 +663,91 @@ export default function FinansScreen({ route }: any) {
       setSelectedBankaId(null);
       setIsFormOpen(true);
     } else if (route?.params?.editHareketId) {
+      if (loadedEditIdRef.current === route.params.editHareketId) return;
+      loadedEditIdRef.current = route.params.editHareketId;
       const loadHareketForEdit = async () => {
         setLoading(true);
         try {
           const hId = route.params.editHareketId;
           const hData =
-            cariHareketler.find((h) => h.id === hId) ||
+            cariHareketler.find((h) => String(h.id) === String(hId)) ||
             (await readData(`CariHareketler/${hId}`));
           if (hData) {
             setEditingId(hId);
-            setIslemTuru(hData.islemTuru || "Tahsilat");
+
+            // İşlem türünü ve ödeme yöntemini ayrıştır
+            const rawTur = String(hData.islemTuru || "");
+            let baseTur: "Tahsilat" | "Ödeme" | "Virman" | "Alacak Dekontu" | "Borç Dekontu" = "Tahsilat";
+            if (rawTur.includes("Ödeme") || rawTur.includes("Odeme")) {
+              baseTur = "Ödeme";
+            } else if (rawTur.includes("Alacak Dekont") || rawTur.includes("Alacaklandır") || rawTur.includes("Alacaklandir") || rawTur.includes("Alacak")) {
+              baseTur = "Alacak Dekontu";
+            } else if (rawTur.includes("Borç Dekont") || rawTur.includes("Borc Dekont") || rawTur.includes("Borçlandır") || rawTur.includes("Borclandir") || rawTur.includes("Borç") || rawTur.includes("Borc")) {
+              baseTur = "Borç Dekontu";
+            } else if (rawTur.includes("Virman")) {
+              baseTur = "Virman";
+            } else {
+              baseTur = ((parseFloat(hData.borc) || 0) > 0) ? "Borç Dekontu" : "Tahsilat";
+            }
+            setIslemTuru(baseTur);
+
+            let detectedMethod: "Nakit" | "Kredi Kartı" | "Havale/EFT" | "Çek" = "Nakit";
+            if (rawTur.includes("KK") || rawTur.includes("Kredi")) {
+              detectedMethod = "Kredi Kartı";
+            } else if (rawTur.includes("EFT") || rawTur.includes("Havale")) {
+              detectedMethod = "Havale/EFT";
+            } else if (rawTur.includes("Çek") || rawTur.includes("Cek")) {
+              detectedMethod = "Çek";
+            }
+            setOdemeYontemi(detectedMethod);
+
+            // Bağlı hesap (kasa/banka) tespit et
+            const evrak = String(hData.evrakNo || "").trim();
+            const ref = String(hData.refId || "").trim();
+            let linkedKasaId = hData.kasaId ?? null;
+            let linkedBankaId = hData.bankaId ?? null;
+
+            if (!linkedKasaId && !linkedBankaId) {
+              const khRaw = (await readData("KasaHareketler")) || {};
+              const khList = Array.isArray(khRaw) ? khRaw.filter(Boolean) : Object.values(khRaw);
+              const matchedKh: any = khList.find((kh: any) => 
+                (ref && (kh.refId === ref || kh.RefId === ref)) ||
+                (evrak && (String(kh.evrakNo || kh.EvrakNo).trim() === evrak))
+              );
+              if (matchedKh) {
+                linkedKasaId = matchedKh.kasaId || matchedKh.hesapId || matchedKh.KasaId;
+              } else {
+                const bhRaw = (await readData("BankaHareketler")) || {};
+                const bhList = Array.isArray(bhRaw) ? bhRaw.filter(Boolean) : Object.values(bhRaw);
+                const matchedBh: any = bhList.find((bh: any) =>
+                  (ref && (bh.refId === ref || bh.RefId === ref)) ||
+                  (evrak && (String(bh.evrakNo || bh.EvrakNo).trim() === evrak))
+                );
+                if (matchedBh) {
+                  linkedBankaId = matchedBh.bankaId || matchedBh.hesapId || matchedBh.BankaId;
+                }
+              }
+            }
+
+            if (linkedKasaId) {
+              setSelectedKasaId(linkedKasaId);
+            }
+            if (linkedBankaId) {
+              setSelectedBankaId(linkedBankaId);
+            }
 
             const cariRef =
-              cariler.find((c) => c.id === hData.cariId) ||
+              cariler.find((c) => String(c.id) === String(hData.cariId)) ||
               (await readData(`Cariler/${hData.cariId}`));
             setSelectedCari(cariRef);
 
-            setTutar(Math.max(hData.borc || 0, hData.alacak || 0).toString());
+            const amountVal = parseFloat(hData.borc || hData.alacak || hData.Borc || hData.Alacak) || 0;
+            setTutar(amountVal > 0 ? amountVal.toString() : "");
             setTarih(hData.tarih || new Date().toISOString().split("T")[0]);
-            setAciklama(hData.aciklama || "");
+
+            let cleanAciklama = String(hData.aciklama || "");
+            cleanAciklama = cleanAciklama.replace(/^\[(Nakit|Kredi Kartı|Havale\/EFT|Çek)\]\s*/i, "");
+            setAciklama(cleanAciklama);
 
             setIsFormOpen(true);
           }
@@ -715,7 +785,11 @@ export default function FinansScreen({ route }: any) {
   }, [selectedCari]);
 
   const resetForm = () => {
+    loadedEditIdRef.current = null;
     setEditingId(null);
+    if (navigation?.setParams) {
+      navigation.setParams({ editHareketId: undefined, initialIslemTuru: undefined });
+    }
     setIslemTuru("Tahsilat");
     setOdemeYontemi("Nakit");
     setSelectedCari(null);
@@ -1391,160 +1465,48 @@ export default function FinansScreen({ route }: any) {
     // --- Atomik kayıt: transactionService (masaüstü FinansService eşleniği, rollback destekli) ---
     setIsSaving(true);
     try {
-      if (!editingId) {
-        const ok = await saveFinancialTransaction({
-          cari: selectedCari,
-          amount: valTutar,
-          date: tarih,
-          transactionType: islemTuru as any,
-          method: odemeYontemi,
-          description: aciklama,
-          selectedHesap: currentAcc
-            ? {
-                id: currentAcc.id,
-                kartTuru: currentAcc.kartTuru || (isKasa ? "Kasa" : undefined),
-                bakiye: currentAcc.bakiye,
-              }
-            : null,
-          bankaAdi: kkBanka,
-          kartHesapNo:
-            odemeYontemi === "Kredi Kartı" || odemeYontemi === "Havale/EFT"
-              ? kkKartNo
-              : "",
-          slipDekontPath: kkSlipPath,
-        });
-        if (!ok) {
-          Alert.alert(
-            "Hata",
-            "Finans hareketi kaydedilemedi. (Bağlantı sorunu — işlem geri alındı.)",
-          );
-          return;
-        }
-      } else {
-        // Düzenleme durumu: mevcut direkt-yazım mantığı korunur
-        const moveId = generateInt32Id();
-        if (currentAcc) {
-          const accountPayload = { ...currentAcc };
-          const eskiHareket = cariHareketler.find((h) => h.id === editingId);
-          if (eskiHareket) {
-            const eskiTutar =
-              eskiHareket.borc > 0 ? eskiHareket.borc : eskiHareket.alacak;
-            const eskiIsParaGiris =
-              eskiHareket.islemTuru?.includes("Tahsilat") ||
-              eskiHareket.islemTuru?.includes("Alacak");
-            const eskiChange = eskiIsParaGiris ? -eskiTutar : eskiTutar;
-            accountPayload.bakiye = (accountPayload.bakiye || 0) + eskiChange;
-          }
-          const change = islemTuru === "Tahsilat" ? valTutar : -valTutar;
-          accountPayload.bakiye = (accountPayload.bakiye || 0) + change;
-          const okHesap = await writeData(
-            `Bankalar/${currentAccId}`,
-            isKasa ? { ...accountPayload, kartTuru: "Kasa" } : accountPayload,
-          );
-          if (!okHesap) {
-            Alert.alert(
-              "Hata",
-              "Hesap bakiyesi güncellenemedi. (Bağlantı sorunu — bakiye sıraya alındı.)",
-            );
-            return;
-          }
-        }
-
-        const activeCari = cariler.find((c) => c.id === selectedCari.id);
-        if (activeCari) {
-          const updatedCari = { ...activeCari };
-          const eskiHareket = cariHareketler.find((h) => h.id === editingId);
-          if (eskiHareket) {
-            const eskiTutar =
-              eskiHareket.borc > 0 ? eskiHareket.borc : eskiHareket.alacak;
-            const eskiIsParaGiris =
-              eskiHareket.islemTuru?.includes("Tahsilat") ||
-              eskiHareket.islemTuru?.includes("Alacak");
-            if (eskiIsParaGiris) {
-              updatedCari.alacak = Math.max(
-                0,
-                (updatedCari.alacak || 0) - eskiTutar,
-              );
-            } else {
-              updatedCari.borc = Math.max(
-                0,
-                (updatedCari.borc || 0) - eskiTutar,
-              );
-            }
-          }
-          const isParaGiris =
-            islemTuru === "Tahsilat" || islemTuru === "Alacak Dekontu";
-          if (isParaGiris) {
-            updatedCari.alacak = (updatedCari.alacak || 0) + valTutar;
-          } else {
-            updatedCari.borc = (updatedCari.borc || 0) + valTutar;
-          }
-          const okCari = await writeData(
-            `Cariler/${selectedCari.id}`,
-            updatedCari,
-          );
-          if (!okCari) {
-            Alert.alert(
-              "Hata",
-              "Cari bakiye güncellenemedi. (Bağlantı sorunu — bakiye sıraya alındı.)",
-            );
-            return;
-          }
-        }
-
-        if (currentAcc) {
-          const movementPayload = {
-            id: moveId,
-            [isKasa ? "kasaId" : "bankaId"]: currentAccId,
-            cariId: selectedCari.id,
-            cariUnvan: selectedCari.unvan,
-            giren: islemTuru === "Tahsilat" ? valTutar : 0,
-            cikan: islemTuru === "Ödeme" ? valTutar : 0,
-            islemTuru,
-            tarih,
-            aciklama:
-              aciklama + (odemeYontemi !== "Nakit" ? ` (${odemeYontemi})` : ""),
-          };
-          const okMove = await writeData(
-            (isKasa ? "KasaHareketler" : "BankaHareketler") + `/${moveId}`,
-            movementPayload,
-          );
-          if (!okMove) {
-            Alert.alert(
-              "Hata",
-              "Hesap hareketi eşitlenemedi. (Bağlantı sorunu — hareket sıraya alındı.)",
-            );
-            return;
-          }
-        }
-
-        const isParaGirisEdit =
-          islemTuru === "Tahsilat" || islemTuru === "Alacak Dekontu";
-        const cariMovePayload = {
-          id: editingId,
-          cariId: selectedCari.id,
-          tarih,
-          islemTuru: islemTuru + ` (${odemeYontemi})`,
-          evrakNo: moveId.toString(),
-          borc: !isParaGirisEdit ? valTutar : 0,
-          alacak: isParaGirisEdit ? valTutar : 0,
-          aciklama,
-        };
-        const okCMove = await writeData(
-          `CariHareketler/${editingId}`,
-          cariMovePayload,
-        );
-        if (!okCMove) {
-          Alert.alert(
-            "Hata",
-            "Cari hareketi güncellenemedi. (Bağlantı sorunu — kayıt sıraya alındı.)",
-          );
-          return;
+      if (editingId) {
+        // Düzenleme durumu: Önceki hareketin tüm etkilerini (kasa, banka, cari bakiye, detaylar) atomik olarak geri al
+        const eskiHareket =
+          cariHareketler.find((h) => String(h.id) === String(editingId)) ||
+          (await readData(`CariHareketler/${editingId}`));
+        if (eskiHareket) {
+          await deleteFinancialTransaction(eskiHareket);
         }
       }
 
-      // Otomatik Çek Entegrasyonu
-      if (odemeYontemi === "Çek" && !isDekont) {
+      const ok = await saveFinancialTransaction({
+        id: editingId || undefined,
+        cari: selectedCari,
+        amount: valTutar,
+        date: tarih,
+        transactionType: islemTuru as any,
+        method: odemeYontemi,
+        description: aciklama,
+        selectedHesap: currentAcc
+          ? {
+              id: currentAcc.id,
+              kartTuru: currentAcc.kartTuru || (isKasa ? "Kasa" : undefined),
+              bakiye: currentAcc.bakiye,
+            }
+          : null,
+        bankaAdi: kkBanka,
+        kartHesapNo:
+          odemeYontemi === "Kredi Kartı" || odemeYontemi === "Havale/EFT"
+            ? kkKartNo
+            : "",
+        slipDekontPath: kkSlipPath,
+      });
+      if (!ok) {
+        Alert.alert(
+          "Hata",
+          "Finans hareketi kaydedilemedi. (Bağlantı sorunu — işlem geri alındı.)",
+        );
+        return;
+      }
+
+      // Otomatik Çek Entegrasyonu (Sadece yeni kayıtta çek üretir, düzenlemede mükerrer üretmez)
+      if (odemeYontemi === "Çek" && !isDekont && !editingId) {
         const nextCekId = generateInt32Id();
         const newCek = {
           id: nextCekId,

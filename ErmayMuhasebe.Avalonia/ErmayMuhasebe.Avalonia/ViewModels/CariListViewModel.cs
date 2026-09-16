@@ -109,59 +109,92 @@ public partial class CariListViewModel : ErmayMuhasebe.Shared.ViewModels.CariLis
     {
         if (SelectedHareket == null || SelectedCari == null) return;
 
-        if (SelectedHareket.IslemTuru != null && SelectedHareket.IslemTuru.Contains("Fatura"))
+        // 1. Faturalar (Alış, Satış, Kapalı, Açık Fatura)
+        var fatura = await FindLinkedFaturaAsync(SelectedHareket);
+        if (fatura != null)
         {
-            Fatura? fatura = SelectedHareket.FaturaId.HasValue ? await _uow.Faturalar.GetByIdAsync(SelectedHareket.FaturaId.Value) : await _uow.Faturalar.GetByNoAsync(SelectedHareket.EvrakNo ?? "");
-            if (fatura != null)
+            var detaylar = await _uow.Faturalar.GetDetaylarAsync(fatura.Id);
+            var vm = new FaturaDetayViewModel(_uow, _pdfService, SelectedCari, fatura, detaylar);
+            vm.RequestClose += () => 
             {
-                var detaylar = await _uow.Faturalar.GetDetaylarAsync(fatura.Id);
-                var vm = new FaturaDetayViewModel(_uow, _pdfService, SelectedCari, fatura.Tur ?? "Satış");
-                vm.LoadFromExisting(fatura, detaylar);
-                vm.RequestClose += () => 
-                {
-                    WeakReferenceMessenger.Default.Send(new NavigateViewModelMessage(this));
-                    _ = LoadCarilerAsync();
-                    if (SelectedCari != null) _ = LoadHareketlerAsync(SelectedCari.Id);
-                };
-                WeakReferenceMessenger.Default.Send(new NavigateViewModelMessage(vm));
-            }
+                WeakReferenceMessenger.Default.Send(new NavigateViewModelMessage(this));
+                _ = LoadCarilerAsync();
+                if (SelectedCari != null) _ = LoadHareketlerAsync(SelectedCari.Id);
+            };
+            WeakReferenceMessenger.Default.Send(new NavigateViewModelMessage(vm));
+            return;
         }
-        else if (SelectedHareket.IslemTuru != null && (SelectedHareket.IslemTuru.Contains("Tahsilat") || SelectedHareket.IslemTuru.Contains("Ödeme") || 
-                 SelectedHareket.IslemTuru.Contains("Alacak Dekontu") || SelectedHareket.IslemTuru.Contains("Borç Dekontu")))
-        {
-            _editingHareket = SelectedHareket;
-            TransactionType = SelectedHareket.IslemTuru.Split('(')[0].Trim();
-            TransactionTitle = $"{TransactionType} Düzenle - {SelectedCari.Unvan}";
-            TransactionAmount = SelectedHareket.Borc > 0 ? SelectedHareket.Borc : SelectedHareket.Alacak;
-            
-            string desc = SelectedHareket.Aciklama ?? "";
-            if (desc.StartsWith("[") && desc.Contains("]"))
-            {
-                int endIdx = desc.IndexOf("]");
-                TransactionMethod = desc.Substring(1, endIdx - 1);
-                TransactionDescription = desc.Substring(endIdx + 1).Trim();
-            }
-            else
-            {
-                TransactionMethod = "Nakit";
-                TransactionDescription = desc;
-            }
-            if (SelectedHareket.YonlendirilenCariId.HasValue)
-            {
-                KkYonlendirilenTedarikciId = SelectedHareket.YonlendirilenCariId;
-                KkYonlendirilenTedarikci = SelectedHareket.YonlendirilenCariUnvan ?? "";
-            }
-            else
-            {
-                KkYonlendirilenTedarikciId = null;
-                KkYonlendirilenTedarikci = "";
-            }
 
-            TransactionDate = SelectedHareket.Tarih;
-            TransactionDateStr = SelectedHareket.Tarih.ToString("dd.MM.yyyy");
-            _ = LoadAvailableKasalarAsync(TransactionMethod);
-            IsTransactionDialogVisible = true;
+        // 2. Finansal İşlemler (Tahsilat, Ödeme, Borç Dekontu / Borçlandır, Alacak Dekontu / Alacaklandır)
+        _editingHareket = SelectedHareket;
+        string rawTur = SelectedHareket.IslemTuru ?? "";
+        if (rawTur.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase))
+            TransactionType = "Tahsilat";
+        else if (rawTur.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) || rawTur.Contains("Odeme", StringComparison.OrdinalIgnoreCase))
+            TransactionType = "Ödeme";
+        else if (rawTur.Contains("Borç", StringComparison.OrdinalIgnoreCase) || rawTur.Contains("Borc", StringComparison.OrdinalIgnoreCase))
+            TransactionType = "Borç Dekontu";
+        else if (rawTur.Contains("Alacak", StringComparison.OrdinalIgnoreCase))
+            TransactionType = "Alacak Dekontu";
+        else
+            TransactionType = SelectedHareket.Borc > 0 ? "Borç Dekontu" : "Tahsilat";
+
+        TransactionTitle = $"{TransactionType} Düzenle - {SelectedCari.Unvan}";
+        TransactionAmount = SelectedHareket.Borc > 0 ? SelectedHareket.Borc : SelectedHareket.Alacak;
+        
+        string desc = SelectedHareket.Aciklama ?? "";
+        if (desc.StartsWith("[") && desc.Contains("]"))
+        {
+            int endIdx = desc.IndexOf("]");
+            TransactionMethod = desc.Substring(1, endIdx - 1);
+            TransactionDescription = desc.Substring(endIdx + 1).Trim();
         }
+        else
+        {
+            TransactionMethod = (TransactionType == "Borç Dekontu" || TransactionType == "Alacak Dekontu") ? "Dekont" : "Nakit";
+            TransactionDescription = desc;
+        }
+        if (SelectedHareket.YonlendirilenCariId.HasValue)
+        {
+            KkYonlendirilenTedarikciId = SelectedHareket.YonlendirilenCariId;
+            KkYonlendirilenTedarikci = SelectedHareket.YonlendirilenCariUnvan ?? "";
+        }
+        else
+        {
+            KkYonlendirilenTedarikciId = null;
+            KkYonlendirilenTedarikci = "";
+        }
+
+        TransactionDate = SelectedHareket.Tarih;
+        TransactionDateStr = SelectedHareket.Tarih.ToString("dd.MM.yyyy");
+        await LoadAvailableKasalarAsync(TransactionMethod);
+
+        // Bağlı Kasa veya Banka hesabını tespit et ve seç
+        if (!string.IsNullOrEmpty(SelectedHareket.RefId) || !string.IsNullOrEmpty(SelectedHareket.EvrakNo))
+        {
+            try
+            {
+                var refId = SelectedHareket.RefId ?? "";
+                var evrakNo = SelectedHareket.EvrakNo ?? "";
+                var allKh = await _uow.Kasalar.GetAllAsync();
+                var kh = allKh.FirstOrDefault(k => (!string.IsNullOrEmpty(refId) && k.RefId == refId) || (!string.IsNullOrEmpty(evrakNo) && k.EvrakNo == evrakNo));
+                if (kh != null)
+                {
+                    var matchedKasa = AvailableKasalar.FirstOrDefault(k => k.Id == kh.KasaId);
+                    if (matchedKasa != null)
+                    {
+                        SelectedKasaForTransaction = matchedKasa;
+                        SelectedKasaId = matchedKasa.Id;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[EditTransactionAsync] Kasa eşleştirme: {ex.Message}");
+            }
+        }
+
+        IsTransactionDialogVisible = true;
     }
 
     [RelayCommand]

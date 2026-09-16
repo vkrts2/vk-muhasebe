@@ -306,33 +306,49 @@
     private async Task OpenNewKasa()
     {
         var parameters = new DialogParameters { ["Model"] = new BankaKart { KartTuru = "Kasa", DovizTuru = "TL" } };
-        var dialog = await DialogService.ShowAsync<CariIslemDialog>("Yeni Kasa Tanımı", parameters);
+        var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Dialogs.BankaDialog>("Yeni Kasa Tanımı", parameters);
         var result = await dialog.Result;
-        if (result != null && !result.Canceled) await LoadData();
+        if (result != null && !result.Canceled && result.Data is BankaKart item)
+        {
+            await DbService.SaveBankaAsync(item);
+            await LoadData();
+        }
     }
 
     private async Task OpenNewBanka()
     {
         var parameters = new DialogParameters { ["Model"] = new BankaKart { KartTuru = "Banka", DovizTuru = "TL" } };
-        var dialog = await DialogService.ShowAsync<CariIslemDialog>("Yeni Banka Tanımı", parameters);
+        var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Dialogs.BankaDialog>("Yeni Banka Tanımı", parameters);
         var result = await dialog.Result;
-        if (result != null && !result.Canceled) await LoadData();
+        if (result != null && !result.Canceled && result.Data is BankaKart item)
+        {
+            await DbService.SaveBankaAsync(item);
+            await LoadData();
+        }
     }
 
     private async Task EditKasa(BankaKart item)
     {
         var parameters = new DialogParameters { ["Model"] = item };
-        var dialog = await DialogService.ShowAsync<CariIslemDialog>("Kasa Düzenle", parameters);
+        var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Dialogs.BankaDialog>("Kasa Düzenle", parameters);
         var result = await dialog.Result;
-        if (result != null && !result.Canceled) await LoadData();
+        if (result != null && !result.Canceled && result.Data is BankaKart updated)
+        {
+            await DbService.SaveBankaAsync(updated);
+            await LoadData();
+        }
     }
 
     private async Task EditBanka(BankaKart item)
     {
         var parameters = new DialogParameters { ["Model"] = item };
-        var dialog = await DialogService.ShowAsync<CariIslemDialog>("Banka Düzenle", parameters);
+        var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Dialogs.BankaDialog>("Banka Düzenle", parameters);
         var result = await dialog.Result;
-        if (result != null && !result.Canceled) await LoadData();
+        if (result != null && !result.Canceled && result.Data is BankaKart updated)
+        {
+            await DbService.SaveBankaAsync(updated);
+            await LoadData();
+        }
     }
 
     private async Task DeleteKasa(BankaKart item)

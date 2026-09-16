@@ -975,32 +975,86 @@ namespace ErmayMuhasebe.Services
         // --- PULL METHODS ---
         private async Task<List<T>?> GlobalGetAllAsync<T>(string resourceName) where T : class
         {
-             if (!IsConnected) return null;
-             try {
-                var collection = await _firebase!.Child(GetYearlyPath(resourceName)).OnceAsync<T>();
+            if (!IsConnected) return null;
+            try 
+            {
+                string cleanUrl = _config.BaseUrl.TrimEnd('/');
+                string token = await GetFirebaseAuthTokenAsync();
+                string authQuery = !string.IsNullOrEmpty(token) ? $"?auth={token}" : "";
+                string url = $"{cleanUrl}/{GetYearlyPath(resourceName)}.json{authQuery}";
+
+                using var response = await _authHttpClient.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CloudSync] GlobalGetAllAsync HTTP {(int)response.StatusCode} for {resourceName}");
+                    return new List<T>();
+                }
+
+                string json = await response.Content.ReadAsStringAsync();
+                if (string.IsNullOrWhiteSpace(json) || json.Trim() == "null")
+                {
+                    return new List<T>();
+                }
+
+                json = json.Trim();
                 var list = new List<T>();
                 var idProp = typeof(T).GetProperty("Id");
-                foreach(var item in collection) 
+
+                if (json.StartsWith("["))
                 {
-                    if (item != null && item.Object != null)
+                    // Firebase returned a JSON Array (e.g. [null, {...}, null, {...}])
+                    var jArray = Newtonsoft.Json.Linq.JArray.Parse(json);
+                    for (int idx = 0; idx < jArray.Count; idx++)
                     {
-                        var obj = item.Object;
-                        if (idProp != null && idProp.CanWrite && int.TryParse(item.Key, out int idVal))
+                        var tokenItem = jArray[idx];
+                        if (tokenItem == null || tokenItem.Type == Newtonsoft.Json.Linq.JTokenType.Null) continue;
+                        
+                        var obj = tokenItem.ToObject<T>();
+                        if (obj != null)
                         {
-                            var currentVal = (int)(idProp.GetValue(obj) ?? 0);
-                            if (currentVal == 0)
+                            if (idProp != null && idProp.CanWrite)
                             {
-                                idProp.SetValue(obj, idVal);
+                                var currentVal = (int)(idProp.GetValue(obj) ?? 0);
+                                if (currentVal == 0)
+                                {
+                                    idProp.SetValue(obj, idx);
+                                }
                             }
+                            list.Add(obj);
                         }
-                        list.Add(obj);
                     }
                 }
+                else if (json.StartsWith("{"))
+                {
+                    // Firebase returned a JSON Object (e.g. {"1": {...}, "2": {...}})
+                    var jObj = Newtonsoft.Json.Linq.JObject.Parse(json);
+                    foreach (var prop in jObj.Properties())
+                    {
+                        if (prop.Value == null || prop.Value.Type == Newtonsoft.Json.Linq.JTokenType.Null) continue;
+
+                        var obj = prop.Value.ToObject<T>();
+                        if (obj != null)
+                        {
+                            if (idProp != null && idProp.CanWrite && int.TryParse(prop.Name, out int idVal))
+                            {
+                                var currentVal = (int)(idProp.GetValue(obj) ?? 0);
+                                if (currentVal == 0)
+                                {
+                                    idProp.SetValue(obj, idVal);
+                                }
+                            }
+                            list.Add(obj);
+                        }
+                    }
+                }
+
                 return list;
-             } catch (Exception ex) {
-                 System.Diagnostics.Debug.WriteLine($"[CloudSync] GlobalGetAllAsync error for {resourceName}: {ex.Message}");
-                 return null;
-             }
+            } 
+            catch (Exception ex) 
+            {
+                System.Diagnostics.Debug.WriteLine($"[CloudSync] GlobalGetAllAsync error for {resourceName}: {ex.Message}");
+                return null;
+            }
         }
 
         public async Task<List<DovizKur>?> PullDovizKurlariAsync() => await GlobalGetAllAsync<DovizKur>("DovizKurlari");
@@ -1043,10 +1097,57 @@ namespace ErmayMuhasebe.Services
         public async Task<List<FaturaDetay>> PullFaturaDetaylarAsync(int faturaId)
         {
              if (!IsConnected) return new List<FaturaDetay>();
-             try {
-                var list = await _firebase!.Child(GetYearlyPath("FaturaDetaylar")).Child(faturaId.ToString()).OnceSingleAsync<List<FaturaDetay>>();
-                return list ?? new List<FaturaDetay>();
-             } catch (Exception ex) {
+             try 
+             {
+                 string cleanUrl = _config.BaseUrl.TrimEnd('/');
+                 string token = await GetFirebaseAuthTokenAsync();
+                 string authQuery = !string.IsNullOrEmpty(token) ? $"?auth={token}" : "";
+                 string url = $"{cleanUrl}/{GetYearlyPath("FaturaDetaylar")}/{faturaId}.json{authQuery}";
+
+                 using var response = await _authHttpClient.GetAsync(url);
+                 if (!response.IsSuccessStatusCode) return new List<FaturaDetay>();
+
+                 string json = await response.Content.ReadAsStringAsync();
+                 if (string.IsNullOrWhiteSpace(json) || json.Trim() == "null") return new List<FaturaDetay>();
+
+                 json = json.Trim();
+                 var list = new List<FaturaDetay>();
+
+                 if (json.StartsWith("["))
+                 {
+                     var jArray = Newtonsoft.Json.Linq.JArray.Parse(json);
+                     for (int idx = 0; idx < jArray.Count; idx++)
+                     {
+                         var item = jArray[idx];
+                         if (item == null || item.Type == Newtonsoft.Json.Linq.JTokenType.Null) continue;
+                         var det = item.ToObject<FaturaDetay>();
+                         if (det != null)
+                         {
+                             if (det.Id == 0) det.Id = idx;
+                             if (det.FaturaId == 0) det.FaturaId = faturaId;
+                             list.Add(det);
+                         }
+                     }
+                 }
+                 else if (json.StartsWith("{"))
+                 {
+                     var jObj = Newtonsoft.Json.Linq.JObject.Parse(json);
+                     foreach (var prop in jObj.Properties())
+                     {
+                         if (prop.Value == null || prop.Value.Type == Newtonsoft.Json.Linq.JTokenType.Null) continue;
+                         var det = prop.Value.ToObject<FaturaDetay>();
+                         if (det != null)
+                         {
+                             if (det.Id == 0 && int.TryParse(prop.Name, out int parsedId)) det.Id = parsedId;
+                             if (det.FaturaId == 0) det.FaturaId = faturaId;
+                             list.Add(det);
+                         }
+                     }
+                 }
+                 return list;
+             } 
+             catch (Exception ex) 
+             {
                  System.Diagnostics.Debug.WriteLine($"[CloudSync] PullFaturaDetaylarAsync Error: {ex.Message}");
                  return new List<FaturaDetay>();
              }

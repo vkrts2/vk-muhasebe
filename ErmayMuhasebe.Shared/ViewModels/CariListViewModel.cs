@@ -1646,7 +1646,7 @@ public abstract partial class CariListViewModel : ViewModelBase
     public virtual async Task EditTransactionAsync() { await Task.CompletedTask; }
 
     [RelayCommand]
-    private async Task<Fatura?> FindLinkedFaturaAsync(CariHareket hareket)
+    protected async Task<Fatura?> FindLinkedFaturaAsync(CariHareket hareket)
     {
         if (hareket == null) return null;
 
@@ -1673,6 +1673,12 @@ public abstract partial class CariListViewModel : ViewModelBase
             }
         }
 
+        if (!string.IsNullOrEmpty(cleanNo))
+        {
+            var directMatch = await _uow.Faturalar.GetByNoAsync(cleanNo);
+            if (directMatch != null) return directMatch;
+        }
+
         if (!string.IsNullOrEmpty(cleanNo) || !string.IsNullOrEmpty(extractedNo))
         {
             var allFaturalar = await _uow.Faturalar.GetAllAsync();
@@ -1681,6 +1687,20 @@ public abstract partial class CariListViewModel : ViewModelBase
                 (!string.IsNullOrEmpty(extractedNo) && (f.FaturaNo.Equals(extractedNo, StringComparison.OrdinalIgnoreCase) || f.FaturaNo.StartsWith(extractedNo, StringComparison.OrdinalIgnoreCase)))
             );
             if (fatura != null) return fatura;
+        }
+
+        // Fallback: If movement is explicitly an invoice type, match by CariId, Date and Amount
+        string tur = hareket.IslemTuru ?? "";
+        if (tur.Contains("Fatura", StringComparison.OrdinalIgnoreCase) || tur.Contains("Satış", StringComparison.OrdinalIgnoreCase) || tur.Contains("Alış", StringComparison.OrdinalIgnoreCase))
+        {
+            var allFaturalar = await _uow.Faturalar.GetAllAsync();
+            decimal hareketTutar = hareket.Borc > 0 ? hareket.Borc : hareket.Alacak;
+            var matchByAmount = allFaturalar.FirstOrDefault(f => 
+                f.CariId == hareket.CariId && 
+                f.Tarih.Date == hareket.Tarih.Date && 
+                Math.Abs(f.GenelToplam - hareketTutar) < 0.01m
+            );
+            if (matchByAmount != null) return matchByAmount;
         }
 
         return null;

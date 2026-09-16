@@ -922,26 +922,33 @@ export default function CarilerScreen({ route, navigation }: any) {
         {
 
           text: 'Düzenle',
-
           onPress: () => {
-
             setIsDetailOpen(false);
-
             const rawFaturaId = h.faturaId || h.FaturaId;
-            if (h.islemTuru.includes('Fatura') && (rawFaturaId || h.evrakNo)) {
+            const cleanEvrakNo = String(h.evrakNo || '').trim();
+            const turUpper = String(h.islemTuru || '').toUpperCase();
+            const isFatura = turUpper.includes('FATURA') ||
+                             turUpper.includes('SATIŞ') ||
+                             turUpper.includes('SATIS') ||
+                             turUpper.includes('ALIŞ') ||
+                             turUpper.includes('ALIS') ||
+                             (rawFaturaId && Number(rawFaturaId) > 0) ||
+                             cleanEvrakNo.startsWith('FAT') ||
+                             cleanEvrakNo.startsWith('SF') ||
+                             cleanEvrakNo.startsWith('AF') ||
+                             cleanEvrakNo.startsWith('FTR-') ||
+                             cleanEvrakNo.startsWith('KPL-');
 
+            if (isFatura && (rawFaturaId || h.evrakNo)) {
+              const cleanFaturaNo = h.evrakNo ? String(h.evrakNo).replace(/^KPL-/, '').trim() : undefined;
               navigation.navigate('FaturaForm', { 
                 editFaturaId: rawFaturaId ? (parseInt(rawFaturaId) || rawFaturaId) : undefined, 
-                faturaNo: h.evrakNo, 
+                faturaNo: cleanFaturaNo, 
                 reOpenCariId: selectedCari?.id 
               });
-
             } else {
-
-              navigation.navigate('Finans', { editHareketId: h.id, reOpenCariId: selectedCari?.id });
-
+              navigation.navigate('Finans', { editHareketId: h.id || h.firebaseKey, reOpenCariId: selectedCari?.id });
             }
-
           }
 
         },
@@ -952,9 +959,19 @@ export default function CarilerScreen({ route, navigation }: any) {
           style: 'destructive',
           onPress: () => {
             const rawFaturaId = h.faturaId || h.FaturaId;
-            const isFatura = (h.islemTuru && h.islemTuru.includes('Fatura')) ||
+            const cleanEvrakNo = String(h.evrakNo || '').trim();
+            const turUpper = String(h.islemTuru || '').toUpperCase();
+            const isFatura = turUpper.includes('FATURA') ||
+                             turUpper.includes('SATIŞ') ||
+                             turUpper.includes('SATIS') ||
+                             turUpper.includes('ALIŞ') ||
+                             turUpper.includes('ALIS') ||
                              (rawFaturaId && Number(rawFaturaId) > 0) ||
-                             (h.evrakNo && (String(h.evrakNo).startsWith('FAT') || String(h.evrakNo).startsWith('KPL-')));
+                             cleanEvrakNo.startsWith('FAT') ||
+                             cleanEvrakNo.startsWith('SF') ||
+                             cleanEvrakNo.startsWith('AF') ||
+                             cleanEvrakNo.startsWith('FTR-') ||
+                             cleanEvrakNo.startsWith('KPL-');
 
             const confirmTitle = isFatura ? 'Faturayı ve Hareketi Sil' : 'Silme Onayı';
             const confirmMsg = isFatura

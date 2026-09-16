@@ -412,10 +412,13 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
     {
         var db = await GetConnectionAsync();
         var newStokHarekets = new List<StokHareket>();
+        var oldCariHareketIdsToDelete = new List<int>();
+        var oldStokHareketIdsToDelete = new List<int>();
         CariHareket? newCariHareket = null;
 
         await db.RunInTransactionAsync(tran => 
         {
+            List<CariHareket> existingCariHarekets = new();
             if (fatura.Id != 0) 
             {
                 var oldDetails = tran.Query<FaturaDetay>("SELECT * FROM FaturaDetay WHERE FaturaId = ?", fatura.Id);
@@ -458,8 +461,15 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
 
                 tran.Update(fatura);
                 tran.Execute("DELETE FROM FaturaDetay WHERE FaturaId = ?", fatura.Id);
+
+                // Collect old stock movements to delete from cloud
+                var oldSh = tran.Query<StokHareket>("SELECT * FROM StokHareket WHERE FaturaId = ? OR EvrakNo = ?", fatura.Id, fatura.FaturaNo ?? "");
+                foreach (var s in oldSh) oldStokHareketIdsToDelete.Add(s.Id);
                 tran.Execute("DELETE FROM StokHareket WHERE FaturaId = ?", fatura.Id);
-                tran.Execute("DELETE FROM CariHareket WHERE FaturaId = ?", fatura.Id);
+
+                // Fetch existing CariHareketler to update in-place instead of deleting and recreating (prevents duplicate cloud sync)
+                existingCariHarekets = tran.Query<CariHareket>("SELECT * FROM CariHareket WHERE FaturaId = ? OR (CariId = ? AND EvrakNo IS NOT NULL AND EvrakNo = ?)", fatura.Id, fatura.CariId, fatura.FaturaNo ?? "");
+
                 // Also clean up linked financial movements if updating
                 tran.Execute("DELETE FROM KasaHareket WHERE EvrakNo = ? AND CariId = ?", fatura.FaturaNo, fatura.CariId);
                 tran.Execute("DELETE FROM BankaHareket WHERE EvrakNo = ? AND CariId = ?", fatura.FaturaNo, fatura.CariId);
@@ -563,20 +573,59 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                     else cr.Alacak += fatura.GenelToplam;
                     tran.Update(cr);
 
-                    var cariHareket = new CariHareket
+                    if (existingCariHarekets != null && existingCariHarekets.Count > 0)
                     {
-                        CariId = fatura.CariId,
-                        Tarih = fatura.Tarih,
-                        IslemTuru = currentIsSatis ? "Satış Faturası" : "Alış Faturası",
-                        Borc = currentIsSatis ? fatura.GenelToplam : 0,
-                        Alacak = !currentIsSatis ? fatura.GenelToplam : 0,
-                        Aciklama = $"Fatura No: {fatura.FaturaNo}",
-                        EvrakNo = fatura.FaturaNo,
-                        FaturaId = fatura.Id,
-                        Vade = fatura.VadeTarihi
-                    };
-                    tran.Insert(cariHareket);
-                    newCariHareket = cariHareket;
+                        // Update existing movement in-place to maintain stable ID
+                        var cariHareket = existingCariHarekets[0];
+                        cariHareket.CariId = fatura.CariId;
+                        cariHareket.CariUnvan = fatura.CariUnvan;
+                        cariHareket.Tarih = fatura.Tarih;
+                        cariHareket.IslemTuru = currentIsSatis ? "Satış Faturası" : "Alış Faturası";
+                        cariHareket.Borc = currentIsSatis ? fatura.GenelToplam : 0;
+                        cariHareket.Alacak = !currentIsSatis ? fatura.GenelToplam : 0;
+                        cariHareket.Aciklama = $"Fatura No: {fatura.FaturaNo}";
+                        cariHareket.EvrakNo = fatura.FaturaNo;
+                        cariHareket.FaturaId = fatura.Id;
+                        cariHareket.Vade = fatura.VadeTarihi;
+                        tran.Update(cariHareket);
+                        newCariHareket = cariHareket;
+
+                        // Delete any redundant duplicate movements beyond the first one
+                        for (int i = 1; i < existingCariHarekets.Count; i++)
+                        {
+                            tran.Delete(existingCariHarekets[i]);
+                            oldCariHareketIdsToDelete.Add(existingCariHarekets[i].Id);
+                        }
+                    }
+                    else
+                    {
+                        var cariHareket = new CariHareket
+                        {
+                            CariId = fatura.CariId,
+                            CariUnvan = fatura.CariUnvan,
+                            Tarih = fatura.Tarih,
+                            IslemTuru = currentIsSatis ? "Satış Faturası" : "Alış Faturası",
+                            Borc = currentIsSatis ? fatura.GenelToplam : 0,
+                            Alacak = !currentIsSatis ? fatura.GenelToplam : 0,
+                            Aciklama = $"Fatura No: {fatura.FaturaNo}",
+                            EvrakNo = fatura.FaturaNo,
+                            FaturaId = fatura.Id,
+                            Vade = fatura.VadeTarihi
+                        };
+                        tran.Insert(cariHareket);
+                        newCariHareket = cariHareket;
+                    }
+                }
+            }
+            else
+            {
+                if (existingCariHarekets != null)
+                {
+                    foreach (var ch in existingCariHarekets)
+                    {
+                        tran.Delete(ch);
+                        oldCariHareketIdsToDelete.Add(ch.Id);
+                    }
                 }
             }
 
@@ -586,6 +635,16 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                 _recalculateStockCostInternal(tran, d.StokId);
             }
         });
+
+        // Delete superseded old movements from cloud to avoid resurrecting duplicates
+        foreach (var chId in oldCariHareketIdsToDelete)
+        {
+            await _syncService.DeleteCariHareketAsync(chId);
+        }
+        foreach (var shId in oldStokHareketIdsToDelete)
+        {
+            await _syncService.DeleteStokHareketAsync(shId);
+        }
 
         await _dbService.RecalculateCariBalanceAsync(fatura.CariId);
         await _syncService.SyncFaturaAsync(fatura);

@@ -332,16 +332,47 @@ namespace ErmayMuhasebe.Services
             await db.RunInTransactionAsync(tran =>
             {
                 // 1. Cari Hareketleri Bul ve Bakiye Düzeltmesi Yap
-                chToDelete = tran.Table<CariHareket>()
-                    .Where(h => (!string.IsNullOrEmpty(baseRefId) && (h.RefId == baseRefId || h.RefId == supRefId)) ||
-                                (!string.IsNullOrEmpty(evrakNo) && h.EvrakNo == evrakNo) ||
-                                (hareketId > 0 && h.Id == hareketId))
-                    .ToList();
-
-                if (hareketId > 0 && !chToDelete.Any(x => x.Id == hareketId))
+                chToDelete = new List<CariHareket>();
+                CariHareket? primary = null;
+                if (hareketId > 0)
                 {
-                    var single = tran.Find<CariHareket>(hareketId);
-                    if (single != null) chToDelete.Add(single);
+                    primary = tran.Find<CariHareket>(hareketId);
+                }
+                else if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    primary = tran.Query<CariHareket>("SELECT * FROM CariHareket WHERE EvrakNo = ?", evrakNo).FirstOrDefault();
+                    if (primary != null) hareketId = primary.Id;
+                }
+
+                if (primary != null)
+                {
+                    chToDelete.Add(primary);
+                    if (string.IsNullOrEmpty(baseRefId) && !string.IsNullOrEmpty(primary.RefId))
+                    {
+                        refId = primary.RefId;
+                        baseRefId = refId.EndsWith("-SUP") ? refId.Substring(0, refId.Length - 4) : refId;
+                        supRefId = baseRefId + "-SUP";
+                    }
+                    if (string.IsNullOrEmpty(evrakNo) && !string.IsNullOrEmpty(primary.EvrakNo))
+                    {
+                        evrakNo = primary.EvrakNo;
+                    }
+                }
+                if (!string.IsNullOrEmpty(baseRefId))
+                {
+                    var refMatches = tran.Query<CariHareket>("SELECT * FROM CariHareket WHERE RefId = ? OR RefId = ?", baseRefId, supRefId);
+                    foreach (var m in refMatches)
+                    {
+                        if (!chToDelete.Any(x => x.Id == m.Id)) chToDelete.Add(m);
+                    }
+                }
+                if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    var evrakMatches = tran.Query<CariHareket>("SELECT * FROM CariHareket WHERE EvrakNo = ?", evrakNo);
+                    foreach (var m in evrakMatches)
+                    {
+                        if (!chToDelete.Any(x => x.Id == m.Id)) chToDelete.Add(m);
+                    }
                 }
 
                 foreach (var h in chToDelete)
@@ -360,10 +391,17 @@ namespace ErmayMuhasebe.Services
                 }
 
                 // 2. Kasa Hareketlerini Geri Al ve Sil
-                khToDelete = tran.Table<KasaHareket>()
-                    .Where(k => (!string.IsNullOrEmpty(baseRefId) && (k.RefId == baseRefId || k.RefId == supRefId)) ||
-                                (!string.IsNullOrEmpty(evrakNo) && k.EvrakNo == evrakNo))
-                    .ToList();
+                khToDelete = new List<KasaHareket>();
+                if (!string.IsNullOrEmpty(baseRefId))
+                {
+                    var refMatches = tran.Query<KasaHareket>("SELECT * FROM KasaHareket WHERE RefId = ? OR RefId = ?", baseRefId, supRefId);
+                    foreach (var k in refMatches) if (!khToDelete.Any(x => x.Id == k.Id)) khToDelete.Add(k);
+                }
+                if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    var evrakMatches = tran.Query<KasaHareket>("SELECT * FROM KasaHareket WHERE EvrakNo = ?", evrakNo);
+                    foreach (var k in evrakMatches) if (!khToDelete.Any(x => x.Id == k.Id)) khToDelete.Add(k);
+                }
 
                 foreach (var kh in khToDelete)
                 {
@@ -378,10 +416,17 @@ namespace ErmayMuhasebe.Services
                 }
 
                 // 3. Banka Hareketlerini Geri Al ve Sil
-                bhToDelete = tran.Table<BankaHareket>()
-                    .Where(b => (!string.IsNullOrEmpty(baseRefId) && (b.RefId == baseRefId || b.RefId == supRefId)) ||
-                                (!string.IsNullOrEmpty(evrakNo) && b.EvrakNo == evrakNo))
-                    .ToList();
+                bhToDelete = new List<BankaHareket>();
+                if (!string.IsNullOrEmpty(baseRefId))
+                {
+                    var refMatches = tran.Query<BankaHareket>("SELECT * FROM BankaHareket WHERE RefId = ? OR RefId = ?", baseRefId, supRefId);
+                    foreach (var b in refMatches) if (!bhToDelete.Any(x => x.Id == b.Id)) bhToDelete.Add(b);
+                }
+                if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    var evrakMatches = tran.Query<BankaHareket>("SELECT * FROM BankaHareket WHERE EvrakNo = ?", evrakNo);
+                    foreach (var b in evrakMatches) if (!bhToDelete.Any(x => x.Id == b.Id)) bhToDelete.Add(b);
+                }
 
                 foreach (var bh in bhToDelete)
                 {
@@ -396,16 +441,30 @@ namespace ErmayMuhasebe.Services
                 }
 
                 // 4. Detay Tablolarından Kayıtları Sil
-                kkToDelete = tran.Table<KrediKartiIslem>()
-                    .Where(k => (!string.IsNullOrEmpty(baseRefId) && k.OnayKodu == baseRefId) ||
-                                (!string.IsNullOrEmpty(evrakNo) && k.OnayKodu == evrakNo))
-                    .ToList();
+                kkToDelete = new List<KrediKartiIslem>();
+                if (!string.IsNullOrEmpty(baseRefId))
+                {
+                    var refMatches = tran.Query<KrediKartiIslem>("SELECT * FROM KrediKartiIslem WHERE OnayKodu = ?", baseRefId);
+                    foreach (var k in refMatches) if (!kkToDelete.Any(x => x.Id == k.Id)) kkToDelete.Add(k);
+                }
+                if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    var evrakMatches = tran.Query<KrediKartiIslem>("SELECT * FROM KrediKartiIslem WHERE OnayKodu = ?", evrakNo);
+                    foreach (var k in evrakMatches) if (!kkToDelete.Any(x => x.Id == k.Id)) kkToDelete.Add(k);
+                }
                 foreach (var kkItem in kkToDelete) tran.Delete(kkItem);
 
-                eftToDelete = tran.Table<EftIslem>()
-                    .Where(e => (!string.IsNullOrEmpty(baseRefId) && e.DekontNo == baseRefId) ||
-                                (!string.IsNullOrEmpty(evrakNo) && e.DekontNo == evrakNo))
-                    .ToList();
+                eftToDelete = new List<EftIslem>();
+                if (!string.IsNullOrEmpty(baseRefId))
+                {
+                    var refMatches = tran.Query<EftIslem>("SELECT * FROM EftIslem WHERE DekontNo = ?", baseRefId);
+                    foreach (var e in refMatches) if (!eftToDelete.Any(x => x.Id == e.Id)) eftToDelete.Add(e);
+                }
+                if (!string.IsNullOrEmpty(evrakNo))
+                {
+                    var evrakMatches = tran.Query<EftIslem>("SELECT * FROM EftIslem WHERE DekontNo = ?", evrakNo);
+                    foreach (var e in evrakMatches) if (!eftToDelete.Any(x => x.Id == e.Id)) eftToDelete.Add(e);
+                }
                 foreach (var eftItem in eftToDelete) tran.Delete(eftItem);
 
                 success = true;

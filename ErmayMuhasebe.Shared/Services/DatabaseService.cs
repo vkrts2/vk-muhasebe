@@ -403,13 +403,17 @@ namespace ErmayMuhasebe.Services
                 }
                 catch { }
                 
+                _isInitialized = true;
+
                 if (!IsTestMode)
                 {
                     await MigrateMissingDataFromGlobalDbAsync();
                     StartCloudListeners();
-                    try { await RecalculateSystemBalancesAsync(); } catch { }
+                    _ = Task.Run(async () =>
+                    {
+                        try { await RecalculateSystemBalancesAsync(); } catch { }
+                    });
                 }
-                _isInitialized = true;
             }
             catch (Exception ex)
             {
@@ -4275,8 +4279,28 @@ namespace ErmayMuhasebe.Services
 
                     if (!exists)
                     {
-                        tran.Delete(ch);
+                        tran.Execute("DELETE FROM CariHareket WHERE Id = ?", ch.Id);
                         purgedCariMovements.Add(ch);
+                    }
+                }
+
+                // Deduplicate invoice movements (keep only 1 movement per FaturaId that matches current Fatura amount)
+                var ftrGroups = allCH.Where(x => !purgedCariMovements.Any(p => p.Id == x.Id) && x.FaturaId.HasValue && x.FaturaId.Value > 0).GroupBy(x => x.FaturaId!.Value);
+                foreach (var grp in ftrGroups)
+                {
+                    var list = grp.OrderByDescending(x => x.Id).ToList();
+                    if (list.Count > 1)
+                    {
+                        var fatura = tran.Find<Fatura>(grp.Key);
+                        var keep = (fatura != null ? list.FirstOrDefault(x => x.Borc == fatura.GenelToplam || x.Alacak == fatura.GenelToplam) : null) ?? list.First();
+                        foreach (var duplicate in list)
+                        {
+                            if (duplicate.Id != keep.Id)
+                            {
+                                tran.Execute("DELETE FROM CariHareket WHERE Id = ?", duplicate.Id);
+                                purgedCariMovements.Add(duplicate);
+                            }
+                        }
                     }
                 }
 
@@ -4299,7 +4323,7 @@ namespace ErmayMuhasebe.Services
 
                     if (!exists)
                     {
-                        tran.Delete(sh);
+                        tran.Execute("DELETE FROM StokHareket WHERE Id = ?", sh.Id);
                         purgedStokMovements.Add(sh);
                     }
                 }
@@ -4407,6 +4431,32 @@ namespace ErmayMuhasebe.Services
             foreach (var pch in purgedCariMovements)
             {
                 await _sync.DeleteCariHareketAsync(pch.Id);
+            }
+
+            if (_sync.IsConnected)
+            {
+                try
+                {
+                    var cloudMovements = await _sync.PullCariHareketlerAsync();
+                    if (cloudMovements != null)
+                    {
+                        var deletedFaturalar = await _db.Table<Fatura>().Where(f => f.IsDeleted).ToListAsync();
+                        var deletedFaturaIds = deletedFaturalar.Select(f => f.Id).ToHashSet();
+                        var deletedFaturaNos = deletedFaturalar.Select(f => f.FaturaNo).ToHashSet();
+
+                        foreach (var cm in cloudMovements)
+                        {
+                            if (cm == null) continue;
+                            bool isDeletedFtr = (cm.FaturaId.HasValue && deletedFaturaIds.Contains(cm.FaturaId.Value)) ||
+                                                (!string.IsNullOrEmpty(cm.EvrakNo) && deletedFaturaNos.Contains(cm.EvrakNo.Replace("KPL-", "").Trim()));
+                            if (isDeletedFtr)
+                            {
+                                await _sync.DeleteCariHareketAsync(cm.Id);
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
             foreach (var psh in purgedStokMovements)
             {
@@ -4717,10 +4767,24 @@ namespace ErmayMuhasebe.Services
                 });
 
                 RegisterRealtimeListener<CariHareket>("CariHareketler", async item => {
+                    bool isFtr = (item.IslemTuru != null && item.IslemTuru.Contains("Fatura")) ||
+                                 (!string.IsNullOrEmpty(item.EvrakNo) && (item.EvrakNo.StartsWith("FTR") || item.EvrakNo.StartsWith("KPL-FTR") || item.EvrakNo.StartsWith("FAT"))) ||
+                                 (item.FaturaId.HasValue && item.FaturaId.Value > 0);
+                    if (isFtr)
+                    {
+                        var fatura = await _db.Table<Fatura>().FirstOrDefaultAsync(x => !x.IsDeleted && ((item.FaturaId.HasValue && x.Id == item.FaturaId.Value) || (!string.IsNullOrEmpty(item.EvrakNo) && x.FaturaNo == item.EvrakNo.Replace("KPL-", "").Trim())));
+                        if (fatura == null || (item.Borc != fatura.GenelToplam && item.Alacak != fatura.GenelToplam))
+                        {
+                            await _db.ExecuteAsync("DELETE FROM CariHareket WHERE Id = ?", item.Id);
+                            _ = Task.Run(async () => await _sync.DeleteCariHareketAsync(item.Id));
+                            return;
+                        }
+                    }
+
                     var existing = await _db.Table<CariHareket>().FirstOrDefaultAsync(x => x.Id == item.Id);
                     if (existing == null) 
                     {
-                        await _db.InsertAsync(item);
+                        await _db.InsertOrReplaceAsync(item);
                         NotifyDatabaseChanged();
                     }
                     else if (!AreObjectsEqual(existing, item))
@@ -5383,7 +5447,7 @@ namespace ErmayMuhasebe.Services
                     else
                     {
                         if (c.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                        else if (existing.UpdatedAt < c.UpdatedAt || existing.Version < c.Version)
+                        else if (existing.UpdatedAt < c.UpdatedAt || existing.Version < c.Version || existing.Borc != c.Borc || existing.Alacak != c.Alacak)
                         {
                             await _db.UpdateAsync(c);
                             hasAnyChanges = true;
@@ -5392,128 +5456,7 @@ namespace ErmayMuhasebe.Services
                 }
             }
 
-            // 2. Pull CariHareketler from Cloud
-            var cloudCariHareketler = await _sync.PullCariHareketlerAsync();
-            if (cloudCariHareketler != null)
-            {
-                var cloudCariHareketIds = cloudCariHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localCariHareketler = await _db.Table<CariHareket>().ToListAsync();
-                foreach (var local in localCariHareketler)
-                {
-                    if (!cloudCariHareketIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
-                foreach (var ch in cloudCariHareketler)
-                {
-                    if (ch == null) continue;
-                    var existing = await _db.Table<CariHareket>().FirstOrDefaultAsync(x => x.Id == ch.Id);
-                    if (existing == null) { await _db.InsertAsync(ch); hasAnyChanges = true; }
-                    else if (Math.Abs((existing.Tarih - ch.Tarih).TotalSeconds) > 1 || existing.Borc != ch.Borc || existing.Alacak != ch.Alacak)
-                    {
-                        await _db.UpdateAsync(ch);
-                        hasAnyChanges = true;
-                    }
-                }
-            }
-
-            // 3. Pull Stoklar from Cloud
-            var cloudStoklar = await _sync.PullStoklarAsync();
-            if (cloudStoklar != null)
-            {
-                var cloudStokIds = cloudStoklar.Where(x => x != null && !x.IsDeleted).Select(x => x.Id).ToHashSet();
-                var localStoklar = await _db.Table<StokKart>().ToListAsync();
-                foreach (var local in localStoklar)
-                {
-                    if (!cloudStokIds.Contains(local.Id) && !local.IsDeleted)
-                    {
-                        local.IsDeleted = true;
-                        await _db.UpdateAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
-                foreach (var s in cloudStoklar)
-                {
-                    if (s == null) continue;
-                    var existing = await _db.Table<StokKart>().FirstOrDefaultAsync(x => x.Id == s.Id);
-                    if (existing == null)
-                    {
-                        if (!s.IsDeleted) { await _db.InsertAsync(s); hasAnyChanges = true; }
-                    }
-                    else
-                    {
-                        if (s.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                        else if (existing.UpdatedAt < s.UpdatedAt || existing.Version < s.Version)
-                        {
-                            await _db.UpdateAsync(s);
-                            hasAnyChanges = true;
-                        }
-                    }
-                }
-            }
-
-            // 4. Pull StokHareketler from Cloud
-            var cloudStokHareketler = await _sync.PullStokHareketlerAsync();
-            if (cloudStokHareketler != null)
-            {
-                var cloudStokHareketIds = cloudStokHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localStokHareketler = await _db.Table<StokHareket>().ToListAsync();
-                foreach (var local in localStokHareketler)
-                {
-                    if (!cloudStokHareketIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
-                foreach (var sh in cloudStokHareketler)
-                {
-                    if (sh == null) continue;
-                    var existing = await _db.Table<StokHareket>().FirstOrDefaultAsync(x => x.Id == sh.Id);
-                    if (existing == null) { await _db.InsertAsync(sh); hasAnyChanges = true; }
-                    else if (Math.Abs((existing.Tarih - sh.Tarih).TotalSeconds) > 1 || existing.Giren != sh.Giren || existing.Cikan != sh.Cikan)
-                    {
-                        await _db.UpdateAsync(sh);
-                        hasAnyChanges = true;
-                    }
-                }
-            }
-
-            // 4.1 Re-evaluate Stocks if movements changed or if orphan costs exist
-            try
-            {
-                var allDbStoks = await _db.Table<StokKart>().Where(s => !s.IsDeleted).ToListAsync();
-                var allDbMoves = await _db.Table<StokHareket>().ToListAsync();
-                foreach (var st in allDbStoks)
-                {
-                    var stMoves = allDbMoves.Where(h => h.StokId == st.Id).ToList();
-                    if (!stMoves.Any())
-                    {
-                        if (st.Miktar != 0 || st.OrtalamaAlisFiyati != 0 || st.OrtalamaSatisFiyati != 0 || st.AlisFiyati != 0 || st.SatisFiyati != 0)
-                        {
-                            st.Miktar = 0;
-                            st.OrtalamaAlisFiyati = 0;
-                            st.OrtalamaSatisFiyati = 0;
-                            st.AlisFiyati = 0;
-                            st.SatisFiyati = 0;
-                            await _db.UpdateAsync(st);
-                            try { await _sync.SyncGenericAsync("Stoklar", st, st.Id); } catch { }
-                            hasAnyChanges = true;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Stock self-healing error: {ex.Message}");
-            }
-
-            // 5. Pull Faturalar from Cloud
+            // 2. Pull Faturalar from Cloud (Must be pulled BEFORE CariHareketler and Stocks)
             var cloudFaturalar = await _sync.PullFaturalarAsync();
             if (cloudFaturalar != null)
             {
@@ -5593,6 +5536,193 @@ namespace ErmayMuhasebe.Services
                         }
                     }
                 }
+            }
+
+            // 3. Pull Stoklar from Cloud
+            var cloudStoklar = await _sync.PullStoklarAsync();
+            if (cloudStoklar != null)
+            {
+                var cloudStokIds = cloudStoklar.Where(x => x != null && !x.IsDeleted).Select(x => x.Id).ToHashSet();
+                var localStoklar = await _db.Table<StokKart>().ToListAsync();
+                foreach (var local in localStoklar)
+                {
+                    if (!cloudStokIds.Contains(local.Id) && !local.IsDeleted)
+                    {
+                        local.IsDeleted = true;
+                        await _db.UpdateAsync(local);
+                        hasAnyChanges = true;
+                    }
+                }
+
+                foreach (var s in cloudStoklar)
+                {
+                    if (s == null) continue;
+                    var existing = await _db.Table<StokKart>().FirstOrDefaultAsync(x => x.Id == s.Id);
+                    if (existing == null)
+                    {
+                        if (!s.IsDeleted) { await _db.InsertAsync(s); hasAnyChanges = true; }
+                    }
+                    else
+                    {
+                        if (s.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
+                        else if (existing.UpdatedAt < s.UpdatedAt || existing.Version < s.Version || existing.Miktar != s.Miktar)
+                        {
+                            await _db.UpdateAsync(s);
+                            hasAnyChanges = true;
+                        }
+                    }
+                }
+            }
+
+            // 4. Pull StokHareketler from Cloud
+            var cloudStokHareketler = await _sync.PullStokHareketlerAsync();
+            if (cloudStokHareketler != null)
+            {
+                var cloudStokHareketIds = cloudStokHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
+                var localStokHareketler = await _db.Table<StokHareket>().ToListAsync();
+                foreach (var local in localStokHareketler)
+                {
+                    if (!cloudStokHareketIds.Contains(local.Id))
+                    {
+                        await _db.DeleteAsync(local);
+                        hasAnyChanges = true;
+                    }
+                }
+
+                foreach (var sh in cloudStokHareketler)
+                {
+                    if (sh == null) continue;
+                    var existing = await _db.Table<StokHareket>().FirstOrDefaultAsync(x => x.Id == sh.Id);
+                    if (existing == null) { await _db.InsertAsync(sh); hasAnyChanges = true; }
+                    else if (Math.Abs((existing.Tarih - sh.Tarih).TotalSeconds) > 1 || existing.Giren != sh.Giren || existing.Cikan != sh.Cikan)
+                    {
+                        await _db.UpdateAsync(sh);
+                        hasAnyChanges = true;
+                    }
+                }
+            }
+
+            // 4.1 Re-evaluate Stocks if movements changed or if orphan costs exist
+            try
+            {
+                var allDbStoks = await _db.Table<StokKart>().Where(s => !s.IsDeleted).ToListAsync();
+                var allDbMoves = await _db.Table<StokHareket>().ToListAsync();
+                foreach (var st in allDbStoks)
+                {
+                    var stMoves = allDbMoves.Where(h => h.StokId == st.Id).ToList();
+                    if (!stMoves.Any())
+                    {
+                        if (st.Miktar != 0 || st.OrtalamaAlisFiyati != 0 || st.OrtalamaSatisFiyati != 0 || st.AlisFiyati != 0 || st.SatisFiyati != 0)
+                        {
+                            st.Miktar = 0;
+                            st.OrtalamaAlisFiyati = 0;
+                            st.OrtalamaSatisFiyati = 0;
+                            st.AlisFiyati = 0;
+                            st.SatisFiyati = 0;
+                            await _db.UpdateAsync(st);
+                            try { await _sync.SyncGenericAsync("Stoklar", st, st.Id); } catch { }
+                            hasAnyChanges = true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Stock self-healing error: {ex.Message}");
+            }
+
+            // 5. Pull CariHareketler from Cloud (Pulled AFTER Faturalar to prevent false deletion)
+            var cloudCariHareketler = await _sync.PullCariHareketlerAsync();
+            if (cloudCariHareketler != null)
+            {
+                var cloudCariHareketIds = cloudCariHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
+                var localCariHareketler = await _db.Table<CariHareket>().ToListAsync();
+                foreach (var local in localCariHareketler)
+                {
+                    if (!cloudCariHareketIds.Contains(local.Id))
+                    {
+                        await _db.DeleteAsync(local);
+                        hasAnyChanges = true;
+                    }
+                }
+
+                foreach (var ch in cloudCariHareketler)
+                {
+                    if (ch == null) continue;
+                    bool isFtr = (ch.IslemTuru != null && ch.IslemTuru.Contains("Fatura")) ||
+                                 (!string.IsNullOrEmpty(ch.EvrakNo) && (ch.EvrakNo.StartsWith("FTR") || ch.EvrakNo.StartsWith("KPL-FTR") || ch.EvrakNo.StartsWith("FAT"))) ||
+                                 (ch.FaturaId.HasValue && ch.FaturaId.Value > 0);
+                    if (isFtr)
+                    {
+                        int? fId = ch.FaturaId;
+                        string cleanEvrak = string.IsNullOrEmpty(ch.EvrakNo) ? "" : ch.EvrakNo.Replace("KPL-", "").Trim();
+                        var fatura = await _db.Table<Fatura>().FirstOrDefaultAsync(x => 
+                            !x.IsDeleted && (
+                                (fId.HasValue && fId.Value > 0 && x.Id == fId.Value) || 
+                                (!string.IsNullOrEmpty(cleanEvrak) && x.FaturaNo == cleanEvrak)
+                            ));
+                        if (fatura != null && (ch.Borc != fatura.GenelToplam && ch.Alacak != fatura.GenelToplam))
+                        {
+                            bool isSatis = (fatura.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || 
+                                           (fatura.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase) ||
+                                           (fatura.Tur ?? "").StartsWith("Sat", StringComparison.OrdinalIgnoreCase);
+                            if (isSatis) { ch.Borc = fatura.GenelToplam; ch.Alacak = 0; }
+                            else { ch.Alacak = fatura.GenelToplam; ch.Borc = 0; }
+                        }
+                    }
+
+                    var existing = await _db.Table<CariHareket>().FirstOrDefaultAsync(x => x.Id == ch.Id);
+                    if (existing == null) { await _db.InsertOrReplaceAsync(ch); hasAnyChanges = true; }
+                    else if (Math.Abs((existing.Tarih - ch.Tarih).TotalSeconds) > 1 || existing.Borc != ch.Borc || existing.Alacak != ch.Alacak)
+                    {
+                        await _db.UpdateAsync(ch);
+                        hasAnyChanges = true;
+                    }
+                }
+            }
+
+            // 5.1 Self-Healing: Missing CariHareket for Invoices
+            try
+            {
+                var activeFaturalar = await _db.Table<Fatura>().Where(f => !f.IsDeleted).ToListAsync();
+                var allActiveCH = await _db.Table<CariHareket>().ToListAsync();
+                foreach (var f in activeFaturalar)
+                {
+                    if (f.CariId <= 0 || f.GenelToplam <= 0) continue;
+                    var hasMovement = allActiveCH.Any(x => 
+                        (x.FaturaId.HasValue && x.FaturaId.Value == f.Id) ||
+                        (!string.IsNullOrEmpty(x.EvrakNo) && (x.EvrakNo.Equals(f.FaturaNo, StringComparison.OrdinalIgnoreCase) || x.EvrakNo.Equals("KPL-" + f.FaturaNo, StringComparison.OrdinalIgnoreCase)))
+                    );
+
+                    if (!hasMovement)
+                    {
+                        bool isSatis = (f.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || 
+                                       (f.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase) ||
+                                       (f.Tur ?? "").StartsWith("Sat", StringComparison.OrdinalIgnoreCase);
+                        
+                        var newCh = new CariHareket
+                        {
+                            Id = (int)(DateTime.UtcNow.Ticks % 2147483647),
+                            CariId = f.CariId,
+                            CariUnvan = f.CariUnvan,
+                            Tarih = f.Tarih != default ? f.Tarih : DateTime.Now,
+                            IslemTuru = isSatis ? "Satış Faturası" : "Alış Faturası",
+                            Aciklama = $"Fatura No: {f.FaturaNo}",
+                            EvrakNo = f.FaturaNo,
+                            Borc = isSatis ? f.GenelToplam : 0,
+                            Alacak = !isSatis ? f.GenelToplam : 0,
+                            FaturaId = f.Id
+                        };
+                        await _db.InsertAsync(newCh);
+                        try { await _sync.SyncCariHareketAsync(newCh); } catch { }
+                        allActiveCH.Add(newCh);
+                        hasAnyChanges = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Invoice CariHareket self-healing error: {ex.Message}");
             }
 
             // 6. Pull Siparisler from Cloud

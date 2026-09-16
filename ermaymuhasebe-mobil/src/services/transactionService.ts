@@ -16,6 +16,7 @@ export type IslemTuru = 'Tahsilat' | 'Ödeme' | 'Alacak Dekontu' | 'Borç Dekont
 export type OdemeYontemi = 'Nakit' | 'Kredi Kartı' | 'Havale/EFT' | 'Havale / EFT' | 'Çek' | 'Banka';
 
 export interface FinancialTransactionRequest {
+  id?: number | string;
   cari: { id: number | string; unvan: string };
   amount: number;
   date: string;
@@ -62,8 +63,8 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
   const refId = randomKey();
   const evrakNo = getEvrakNoPrefix(req.method) + new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 
-  const isOdeme = req.transactionType === 'Ödeme' || req.transactionType === 'Borç Dekontu';
-  const chId = generateInt32Id();
+  const isOdeme = req.transactionType === 'Ödeme' || req.transactionType === 'Borç Dekontu' || (req.transactionType as string) === 'Borçlandır' || (req.transactionType as string) === 'Borclandir';
+  const chId = (req.id !== undefined && !isNaN(Number(req.id)) && Number(req.id) > 0) ? Number(req.id) : generateInt32Id();
   const mainCH = {
     id: chId,
     cariId: req.cari.id,
@@ -77,6 +78,7 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
     alacak: !isOdeme ? req.amount : 0,
     yonlendirilenCariId: req.directedSupplier?.id || undefined,
     yonlendirilenCariUnvan: req.directedSupplier?.unvan || undefined,
+    isDeleted: false,
   };
 
   const written: string[] = [];
@@ -269,8 +271,8 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
     if (typeof faturaIdOrNo === 'number' || (!isNaN(Number(faturaIdOrNo)) && Number(faturaIdOrNo) > 0)) {
       const numId = Number(faturaIdOrNo);
       const raw = await readData(`Faturalar/${numId}`);
-      if (raw && (raw.id !== undefined || raw.faturaNo)) {
-        oldFatura = { ...raw, id: raw.id ?? numId };
+      if (raw && (raw.id !== undefined || raw.Id !== undefined || raw.faturaNo || raw.FaturaNo)) {
+        oldFatura = { ...raw, id: raw.id ?? raw.Id ?? numId };
       }
     }
 
@@ -279,7 +281,8 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
       const allFaturalar = toKeyList(allFaturalarRaw);
       oldFatura = allFaturalar.find((f: any) =>
         (f.id !== undefined && String(f.id) === cleanNo) ||
-        (f.faturaNo && String(f.faturaNo).trim().toLowerCase() === cleanNo.toLowerCase())
+        (f.Id !== undefined && String(f.Id) === cleanNo) ||
+        ((f.faturaNo || f.FaturaNo) && String(f.faturaNo || f.FaturaNo).trim().toLowerCase() === cleanNo.toLowerCase())
       );
     }
 
@@ -288,12 +291,13 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
       return false;
     }
 
-    const faturaId = oldFatura.id;
-    const faturaNo = oldFatura.faturaNo || '';
-    const turLower = (oldFatura.tur || '').toLowerCase();
+    const faturaId = oldFatura.id ?? oldFatura.Id ?? faturaIdOrNo;
+    const faturaNo = String(oldFatura.faturaNo || oldFatura.FaturaNo || '').trim();
+    const turLower = String(oldFatura.tur || oldFatura.Tur || '').toLowerCase();
     let isSatis = turLower.includes('sat') || turLower.includes('çık') || turLower.includes('cik');
-    const genelToplam = parseFloat(oldFatura.genelToplam) || 0;
-    const isPaid = (oldFatura.odenen || 0) > 0 || (oldFatura.odemeSekli && oldFatura.odemeSekli !== 'Açık' && oldFatura.odemeSekli !== 'Acik');
+    const genelToplam = parseFloat(oldFatura.genelToplam ?? oldFatura.GenelToplam) || 0;
+    const isPaid = (oldFatura.odenen || oldFatura.Odenen || 0) > 0 || (oldFatura.odemeSekli && oldFatura.odemeSekli !== 'Açık' && oldFatura.odemeSekli !== 'Acik');
+    const oldCariId = oldFatura.cariId ?? oldFatura.CariId;
 
     // 2. Prepare Details & Movements for stock rollback
     const detayRaw = (await readData(`FaturaDetaylar/${faturaId}`)) || [];
@@ -304,8 +308,9 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
     const shRaw = (await readData('StokHareketler')) || {};
     const shList = toKeyList(shRaw);
     const matchSh = shList.filter((h: any) =>
-      (h.faturaId !== undefined && (h.faturaId === faturaId || String(h.faturaId) === String(faturaId))) ||
-      (faturaNo && h.evrakNo && String(h.evrakNo).trim().toLowerCase() === faturaNo.trim().toLowerCase())
+      (h.faturaId !== undefined && (String(h.faturaId) === String(faturaId) || String(h.faturaId) === cleanNo)) ||
+      (h.FaturaId !== undefined && (String(h.FaturaId) === String(faturaId) || String(h.FaturaId) === cleanNo)) ||
+      (faturaNo && h.evrakNo && String(h.evrakNo).trim().toLowerCase() === faturaNo.toLowerCase())
     );
 
     if (!detaylar.length && matchSh.length > 0) {
@@ -333,9 +338,9 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
     }
 
     // 3. Revert Cari balance
-    if (oldFatura.cariId) {
+    if (oldCariId) {
       try {
-        const freshCari = await readData(`Cariler/${oldFatura.cariId}`);
+        const freshCari = await readData(`Cariler/${oldCariId}`);
         if (freshCari) {
           const updatedCari = { ...freshCari };
           if (isPaid) {
@@ -346,10 +351,10 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
           } else {
             updatedCari.alacak = Math.max(0, (parseFloat(updatedCari.alacak) || 0) - genelToplam);
           }
-          await writeData(`Cariler/${oldFatura.cariId}`, updatedCari);
+          await writeData(`Cariler/${oldCariId}`, updatedCari);
         }
       } catch (e) {
-        console.error(`[transactionService] Cari ${oldFatura.cariId} bakiye geri alınamadı:`, e);
+        console.error(`[transactionService] Cari ${oldCariId} bakiye geri alınamadı:`, e);
       }
     }
 
@@ -432,10 +437,11 @@ export const deleteFaturaCascade = async (faturaIdOrNo: number | string): Promis
     const chRaw = (await readData('CariHareketler')) || {};
     const chList = toKeyList(chRaw);
     for (const h of chList) {
-      const hEvrak = String(h.evrakNo || h.EvrakNo || '');
+      const hEvrak = String(h.evrakNo || h.EvrakNo || '').trim().toLowerCase();
+      const hFId = h.faturaId !== undefined ? h.faturaId : h.FaturaId;
       const match =
-        (h.faturaId !== undefined && (h.faturaId === faturaId || String(h.faturaId) === String(faturaId))) ||
-        (faturaNo && (hEvrak === faturaNo || hEvrak === `KPL-${faturaNo}`));
+        (hFId !== undefined && (String(hFId) === String(faturaId) || String(hFId) === cleanNo)) ||
+        (faturaNo && (hEvrak === faturaNo.toLowerCase() || hEvrak === `kpl-${faturaNo.toLowerCase()}`));
       if (match) {
         const k = h.firebaseKey || h.id;
         if (k) { try { await deleteData(`CariHareketler/${k}`); } catch {} }
@@ -596,9 +602,9 @@ export const deleteFinancialTransaction = async (cariHareket: any): Promise<bool
     }
   }
 
-  const refId = cariHareket.refId;
-  const evrakNo = cariHareket.evrakNo;
-  const cariHareketId = cariHareket.id;
+  const refId = cariHareket.refId || cariHareket.RefId;
+  const evrakNo = cariHareket.evrakNo || cariHareket.EvrakNo;
+  const cariHareketId = cariHareket.id ?? cariHareket.Id;
   if (!refId && !evrakNo && !cariHareketId) return false;
 
   const baseRefId = refId ? (refId.endsWith('-SUP') ? refId.substring(0, refId.length - 4) : refId) : '';
@@ -625,9 +631,13 @@ export const deleteFinancialTransaction = async (cariHareket: any): Promise<bool
     const eftList = toKeyList(eft);
 
     const matchHareket = (h: any) => {
-      if (refId && (h.refId === baseRefId || h.refId === refId + '-SUP' || h.refId === refId)) return true;
-      if (evrakNo && h.evrakNo && String(h.evrakNo) === String(evrakNo)) return true;
-      if (cariHareketId && (h.id === cariHareketId || (h.firebaseKey && String(h.firebaseKey) === String(cariHareketId)))) return true;
+      const hRef = h.refId || h.RefId;
+      if (refId && hRef && (hRef === baseRefId || hRef === refId + '-SUP' || hRef === refId)) return true;
+      const hEvrak = String(h.evrakNo || h.EvrakNo || '').trim().toLowerCase();
+      if (evrakNo && hEvrak && hEvrak === String(evrakNo).trim().toLowerCase()) return true;
+      const hId = h.id ?? h.Id;
+      if (cariHareketId && (String(hId) === String(cariHareketId) || (h.firebaseKey && String(h.firebaseKey) === String(cariHareketId)))) return true;
+      if (cariHareket.firebaseKey && (h.firebaseKey === cariHareket.firebaseKey || String(hId) === String(cariHareket.firebaseKey))) return true;
       return false;
     };
 
@@ -638,7 +648,10 @@ export const deleteFinancialTransaction = async (cariHareket: any): Promise<bool
     for (const h of cariHList.filter(matchHareket)) {
       const k = h.firebaseKey || h.id;
       if (k && supReads.indexOf(String(k)) === -1) supReads.push(String(k));
-      farkCariler.push({ cariId: h.cariId, borc: h.borc || 0, alacak: h.alacak || 0 });
+      const cid = h.cariId ?? h.CariId;
+      if (cid) {
+        farkCariler.push({ cariId: cid, borc: parseFloat(h.borc ?? h.Borc) || 0, alacak: parseFloat(h.alacak ?? h.Alacak) || 0 });
+      }
     }
 
     if (cariHareket.firebaseKey && supReads.indexOf(String(cariHareket.firebaseKey)) === -1) {
@@ -648,15 +661,32 @@ export const deleteFinancialTransaction = async (cariHareket: any): Promise<bool
       supReads.push(String(cariHareket.id));
     }
 
-    // Cari bakiyeleri geri al
-    const uniqueCari = farkCariler.filter((v, i, a) => a.findIndex((x) => x.cariId === v.cariId) === i);
-    for (const fc of uniqueCari) {
-      const cariRef = await readData(`Cariler/${fc.cariId}`);
+    // Fallback: If no match in list, use cariHareket directly
+    if (farkCariler.length === 0 && (cariHareket.cariId || cariHareket.CariId)) {
+      farkCariler.push({
+        cariId: cariHareket.cariId || cariHareket.CariId,
+        borc: parseFloat(cariHareket.borc ?? cariHareket.Borc) || 0,
+        alacak: parseFloat(cariHareket.alacak ?? cariHareket.Alacak) || 0,
+      });
+    }
+
+    // Cari bakiyeleri geri al (tüm farkları cari bazında toplayarak düşür)
+    const totalFarkByCari: Record<string, { borc: number, alacak: number }> = {};
+    for (const fc of farkCariler) {
+      if (!fc.cariId) continue;
+      const cid = String(fc.cariId);
+      if (!totalFarkByCari[cid]) totalFarkByCari[cid] = { borc: 0, alacak: 0 };
+      totalFarkByCari[cid].borc += (parseFloat(fc.borc) || 0);
+      totalFarkByCari[cid].alacak += (parseFloat(fc.alacak) || 0);
+    }
+
+    for (const [cid, fark] of Object.entries(totalFarkByCari)) {
+      const cariRef = await readData(`Cariler/${cid}`);
       if (cariRef) {
-        const okRevert = await writeData(`Cariler/${fc.cariId}`, {
+        const okRevert = await writeData(`Cariler/${cid}`, {
           ...cariRef,
-          borc: Math.max(0, (cariRef.borc || 0) - fc.borc),
-          alacak: Math.max(0, (cariRef.alacak || 0) - fc.alacak),
+          borc: Math.max(0, (parseFloat(cariRef.borc ?? cariRef.Borc) || 0) - fark.borc),
+          alacak: Math.max(0, (parseFloat(cariRef.alacak ?? cariRef.Alacak) || 0) - fark.alacak),
         });
         if (!okRevert) revertFailed = true;
       }

@@ -122,18 +122,21 @@
     </DialogContent>
     <DialogActions>
         <div style="background: #1a252f; width: 100%; padding: 24px; display: flex; justify-content: flex-end; gap: 12px;">
-            <MudButton OnClick="Cancel" Variant="Variant.Filled" Style="background: #6C7A89; color: white; padding: 8px 24px; font-weight: bold;" Disabled="@_isSaving">VAZGEÇ</MudButton>
-            <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Style="padding: 8px 24px; font-weight: bold;" Disabled="@_isSaving">
-                @if (_isSaving)
-                {
-                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
-                    <MudText Class="ms-2">KAYDEDİLİYOR...</MudText>
-                }
-                else
-                {
-                    <MudText>KAYDET</MudText>
-                }
-            </MudButton>
+            <MudButton OnClick="Cancel" Variant="Variant.Filled" Style="background: #6C7A89; color: white; padding: 8px 24px; font-weight: bold;" Disabled="@_isSaving">@(ReadOnly ? "KAPAT" : "VAZGEÇ")</MudButton>
+            @if (!ReadOnly)
+            {
+                <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Style="padding: 8px 24px; font-weight: bold;" Disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                        <MudText Class="ms-2">KAYDEDİLİYOR...</MudText>
+                    }
+                    else
+                    {
+                        <MudText>KAYDET</MudText>
+                    }
+                </MudButton>
+            }
         </div>
     </DialogActions>
 </MudDialog>
@@ -143,9 +146,11 @@
     
     [Parameter] public string CariUnvan { get; set; } = "";
     [Parameter] public string CariYetkili { get; set; } = "";
-    [Parameter] public string IslemTipi { get; set; } = "Stoksuz Satış";
+    [Parameter] public string IslemTipi { get; set; } = "Tahsilat";
     [Parameter] public int CariId { get; set; }
     [Parameter] public CariHareket? ExistingHareket { get; set; }
+    [Parameter] public int? ExistingHareketId { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
     
     private DateTime? islemTarihi = DateTime.Now;
     private string aciklama = "";
@@ -165,24 +170,52 @@
 
     protected override async Task OnInitializedAsync()
     {
-        cari = await DbService.GetCariAsync(CariId);
+        if (ExistingHareket == null && ExistingHareketId.HasValue && ExistingHareketId.Value > 0)
+        {
+            var db = await DbService.GetConnectionAsync();
+            ExistingHareket = await db.Table<CariHareket>().FirstOrDefaultAsync(x => x.Id == ExistingHareketId.Value);
+        }
+
         if (ExistingHareket != null)
         {
+            CariId = ExistingHareket.CariId;
+            CariUnvan = ExistingHareket.CariUnvan ?? "";
             islemTarihi = ExistingHareket.Tarih;
             aciklama = ExistingHareket.Aciklama ?? "";
             tutar = ExistingHareket.Borc > 0 ? ExistingHareket.Borc : ExistingHareket.Alacak;
-            IslemTipi = ExistingHareket.IslemTuru ?? "Stoksuz Satış";
+            IslemTipi = ExistingHareket.IslemTuru ?? "Tahsilat";
             slipImageBase64 = ExistingHareket.SlipImage ?? "";
             
-            // Extract payment method from description if available
-            if (aciklama.Contains("(Nakit)")) odemeYontemi = "Nakit";
-            else if (aciklama.Contains("(Kredi Kartı)")) odemeYontemi = "Kredi Kartı";
-            else if (aciklama.Contains("(Havale / EFT)")) odemeYontemi = "Havale / EFT";
-            else if (aciklama.Contains("(Çek)")) odemeYontemi = "Çek";
+            // Extract payment method from IslemTuru or description
+            string fullText = (ExistingHareket.IslemTuru + " " + aciklama);
+            if (fullText.Contains("Kredi Kartı") || fullText.Contains("(KK)") || fullText.Contains("KK")) odemeYontemi = "Kredi Kartı";
+            else if (fullText.Contains("Havale") || fullText.Contains("EFT") || fullText.Contains("(EFT)")) odemeYontemi = "Havale / EFT";
+            else if (fullText.Contains("Çek") || fullText.Contains("Cek")) odemeYontemi = "Çek";
+            else odemeYontemi = "Nakit";
+
+            aciklama = System.Text.RegularExpressions.Regex.Replace(aciklama, @"\s*\((Nakit|Kredi Kartı|Havale / EFT|Çek|KK|EFT)\)", "");
+            aciklama = System.Text.RegularExpressions.Regex.Replace(aciklama, @"^\[(Nakit|Kredi Kartı|Havale / EFT|Çek)\]\s*", "");
+
+            if (!string.IsNullOrEmpty(ExistingHareket.EvrakNo))
+            {
+                var db = await DbService.GetConnectionAsync();
+                var bh = await db.Table<BankaHareket>().FirstOrDefaultAsync(x => x.EvrakNo == ExistingHareket.EvrakNo);
+                if (bh != null) seciliKartId = bh.BankaId;
+            }
         }
         else
         {
             aciklama = IslemTipi;
+        }
+
+        if (CariId > 0)
+        {
+            cari = await DbService.GetCariAsync(CariId);
+            if (cari != null)
+            {
+                if (string.IsNullOrEmpty(CariUnvan)) CariUnvan = cari.Unvan ?? "";
+                if (string.IsNullOrEmpty(CariYetkili)) CariYetkili = cari.Yetkili ?? "";
+            }
         }
 
         await LoadBankalar();
@@ -287,7 +320,7 @@
     
     async Task Save()
     {
-        if (_isSaving) return;
+        if (ReadOnly || _isSaving) return;
         
         if (tutar <= 0)
         {
@@ -307,11 +340,26 @@
             _isSaving = true;
             StateHasChanged();
 
-            var hareket = ExistingHareket ?? new CariHareket();
-            hareket.CariId = CariId;
-            hareket.CariUnvan = CariUnvan;
-            hareket.Tarih = islemTarihi ?? DateTime.Now;
-            hareket.SlipImage = slipImageBase64;
+            // Evrak numarasını koru (düzenlemede yeni numara üretilmez)
+            string evrakNo = (ExistingHareket != null && !string.IsNullOrEmpty(ExistingHareket.EvrakNo) && ExistingHareket.EvrakNo != "-")
+                ? ExistingHareket.EvrakNo 
+                : "CRI-" + DateTime.Now.Ticks.ToString().Substring(10);
+
+            // DÜZENLEME DURUMU: Eski hareketin önceki cari, kasa, banka etkilerini güvenle geri al
+            if (ExistingHareket != null && ExistingHareket.Id > 0)
+            {
+                await DbService.DeleteCariHareketAsync(ExistingHareket);
+            }
+
+            var hareket = new CariHareket
+            {
+                CariId = CariId,
+                CariUnvan = CariUnvan,
+                Tarih = islemTarihi ?? DateTime.Now,
+                SlipImage = slipImageBase64,
+                EvrakNo = evrakNo,
+                IslemTuru = IslemTipi
+            };
             
             string finalAciklama = aciklama;
             if (!finalAciklama.Contains($"({odemeYontemi})"))
@@ -319,11 +367,6 @@
                 finalAciklama += $" ({odemeYontemi})";
             }
             hareket.Aciklama = finalAciklama;
-            
-            if (ExistingHareket == null || string.IsNullOrEmpty(hareket.EvrakNo) || hareket.EvrakNo == "-") 
-                hareket.EvrakNo = "CRI-" + DateTime.Now.Ticks.ToString().Substring(10);
-            
-            hareket.IslemTuru = IslemTipi;
 
             if (IslemTipi == "Stoksuz Satış" || IslemTipi == "Satis" || IslemTipi == "Ödeme" || IslemTipi == "Cariyi Borçlandırma" || IslemTipi == "Ödeme Makbuzu" || IslemTipi.Contains("Satis") || IslemTipi.Contains("Satış"))
             {
@@ -347,7 +390,6 @@
                 
                 if (kart != null)
                 {
-                    // Banka Hareket oluştur (Böylece banka detayda görünür)
                     var bankaHareket = new BankaHareket
                     {
                         BankaId = kart.Id,
@@ -356,18 +398,18 @@
                         Tarih = hareket.Tarih,
                         Aciklama = $"Cari: {CariUnvan} - {aciklama}",
                         Tutar = tutar,
-                        EvrakNo = hareket.EvrakNo, // Link by EvrakNo
+                        EvrakNo = hareket.EvrakNo,
                         CariUnvan = CariUnvan,
-                        CariId = CariId // Link with customer
+                        CariId = CariId
                     };
 
-                    if (hareket.Borc > 0) // Biz ödeme yapıyoruz (Ödeme) -> Bankadan para çıkıyor
+                    if (hareket.Borc > 0)
                     {
                         bankaHareket.IslemTuru = odemeYontemi == "Kredi Kartı" ? "Ödeme (KK)" : "Ödeme (EFT)";
                         bankaHareket.Cikan = tutar;
                         bankaHareket.Giren = 0;
                     }
-                    else // Biz tahsilat yapıyoruz (Tahsilat) -> Bankaya para giriyor
+                    else
                     {
                         bankaHareket.IslemTuru = odemeYontemi == "Kredi Kartı" ? "Tahsilat (KK)" : "Tahsilat (EFT)";
                         bankaHareket.Giren = tutar;
@@ -378,7 +420,6 @@
                     
                     if (_ciroEdilsin && _yonlendirilenCariId.HasValue)
                     {
-                        // Create associated movement for Credit Card Slip or EFT Endorsement
                         if (odemeYontemi == "Kredi Kartı")
                         {
                              var kkIslem = new KrediKartiIslem
@@ -394,7 +435,7 @@
                              };
                              await DbService.SaveKrediKartiWithTransactionAsync(kkIslem);
                         }
-                        else // EFT Endorsement
+                        else
                         {
                              var eft = new EftIslem
                              {
@@ -413,18 +454,39 @@
                     }
                 }
                 
-                // Recalculate balances
                 await Uow.Cariler.RecalculateBalanceAsync(CariId);
                 if (_ciroEdilsin && _yonlendirilenCariId.HasValue)
                 {
                     await Uow.Cariler.RecalculateBalanceAsync(_yonlendirilenCariId.Value);
                 }
 
-                // Since SaveBankaHareketAsync now automatically creates the CariHareket via EvrakNo+CariId,
-                // we don't need to call SaveCariHareketAsync separately for Bank transactions.
                 Snackbar.Add("İşlem başarıyla kaydedildi", Severity.Success);
                 MudDialog.Close(DialogResult.Ok(true));
                 return;
+            }
+            else if (odemeYontemi == "Nakit")
+            {
+                var defaultKasa = bankalar.FirstOrDefault(b => b.KartTuru == "Kasa") ?? bankalar.FirstOrDefault();
+                if (defaultKasa != null)
+                {
+                    var isGiris = hareket.Alacak > 0;
+                    var kasaHareket = new KasaHareket
+                    {
+                        KasaId = defaultKasa.Id,
+                        Tarih = hareket.Tarih,
+                        Aciklama = $"Cari: {CariUnvan} - {aciklama}",
+                        EvrakNo = hareket.EvrakNo,
+                        CariUnvan = CariUnvan,
+                        CariId = CariId,
+                        IslemTuru = isGiris ? "Tahsilat (Nakit)" : "Ödeme (Nakit)",
+                        Giren = isGiris ? tutar : 0,
+                        Cikan = !isGiris ? tutar : 0
+                    };
+                    await DbService.SaveKasaHareketAsync(kasaHareket);
+                    Snackbar.Add("İşlem başarıyla kaydedildi", Severity.Success);
+                    MudDialog.Close(DialogResult.Ok(true));
+                    return;
+                }
             }
 
             await DbService.SaveCariHareketAsync(hareket);

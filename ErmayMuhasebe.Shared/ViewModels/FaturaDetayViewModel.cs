@@ -209,7 +209,11 @@ public abstract partial class FaturaDetayViewModel : ViewModelBase
             Cari = await _uow.Cariler.GetByIdAsync(cariId.Value);
         }
 
-        // LOAD KASA & BANKA
+        await LoadKasalarAndBankalarAsync();
+    }
+
+    public async Task LoadKasalarAndBankalarAsync()
+    {
         var allAccounts = await _uow.Bankalar.GetAllAsync();
         Kasalar = new ObservableCollection<BankaKart>(allAccounts.Where(x => x.KartTuru == "Kasa"));
         Bankalar = new ObservableCollection<BankaKart>(allAccounts.Where(x => x.KartTuru != "Kasa"));

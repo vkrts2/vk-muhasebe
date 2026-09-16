@@ -19,6 +19,13 @@ public partial class FaturaDetayViewModel : ErmayMuhasebe.Shared.ViewModels.Fatu
         _ = InitializeAsync(null, cari?.Id, tur);
     }
 
+    public FaturaDetayViewModel(IUnitOfWork uow, IPdfService pdfService, CariKart? cari, Fatura fatura, List<FaturaDetay> detaylar) : base(uow, pdfService)
+    {
+        FaturaTuru = fatura.Tur ?? "Satış";
+        LoadFromExisting(fatura, detaylar);
+        _ = LoadKasalarAndBankalarAsync();
+    }
+
     public bool HandleBack()
     {
         if (IsStokSecimVisible) { IsStokSecimVisible = false; return true; }

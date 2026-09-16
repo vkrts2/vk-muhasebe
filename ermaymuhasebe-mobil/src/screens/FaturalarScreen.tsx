@@ -577,21 +577,25 @@ export default function FaturalarScreen({ route, navigation }: any) {
     }
 
     // 3. Update Cari Balance & CariHareketler
-    const cariRef = cariler.find(c => c.id === selectedCari.id);
+    const freshCari = await readData(`Cariler/${selectedCari.id}`);
+    const cariRef = freshCari || cariler.find(c => String(c.id) === String(selectedCari.id));
     if (cariRef) {
       const updatedCari = { ...cariRef };
       if (isPaid) {
         // Kapalı faturalarda cari bakiye değişmez ama borç ve alacak aynı miktarda artar
-        updatedCari.borc = (updatedCari.borc || 0) + grandTotal;
-        updatedCari.alacak = (updatedCari.alacak || 0) + grandTotal;
+        updatedCari.borc = (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) + grandTotal;
+        updatedCari.alacak = (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0) + grandTotal;
       } else {
         // Açık faturalarda Satış ise borçlanır, Alış ise alacaklanır
         if (tur === 'Satış') {
-          updatedCari.borc = (updatedCari.borc || 0) + grandTotal;
+          updatedCari.borc = (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) + grandTotal;
         } else {
-          updatedCari.alacak = (updatedCari.alacak || 0) + grandTotal;
+          updatedCari.alacak = (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0) + grandTotal;
         }
       }
+            updatedCari.bakiye = (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) - (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0);
+      updatedCari.updatedAt = new Date().toISOString();
+      updatedCari.version = (cariRef.version || 0) + 1;
       const okCari = await writeData(`Cariler/${selectedCari.id}`, updatedCari);
       if (!okCari) {
         Alert.alert('Uyarı', 'Fatura kaydedildi ancak cari bakiye eşitlenemedi. (Bağlantı sorunu — bakiye sıraya alındı.)');
@@ -765,14 +769,16 @@ export default function FaturalarScreen({ route, navigation }: any) {
   const revertFaturaEffects = async (faturaId: number): Promise<boolean> => {
     try {
       const oldRaw = await readData(`Faturalar/${faturaId}`);
-      const oldFatura = oldRaw && oldRaw.id !== undefined ? oldRaw : (faturalar.find(f => f.id === faturaId) || null);
+      const oldFatura = oldRaw && (oldRaw.id !== undefined || oldRaw.Id !== undefined || oldRaw.faturaNo || oldRaw.FaturaNo) ? oldRaw : (faturalar.find(f => String(f.id) === String(faturaId) || String((f as any).Id) === String(faturaId)) || null);
       if (!oldFatura) return false;
 
-      const faturaNo = oldFatura.faturaNo || '';
-      const turLower = (oldFatura.tur || '').toLowerCase();
+      const faturaIdVal = oldFatura.id ?? oldFatura.Id ?? faturaId;
+      const faturaNo = String(oldFatura.faturaNo || oldFatura.FaturaNo || '').trim();
+      const oldCariId = oldFatura.cariId ?? oldFatura.CariId;
+      const turLower = String(oldFatura.tur || oldFatura.Tur || '').toLowerCase();
       let isSatis = turLower.includes('sat') || turLower.includes('çık') || turLower.includes('cik');
-      const isPaid = (oldFatura.odenen || 0) > 0;
-      const genelToplam = oldFatura.genelToplam || 0;
+      const isPaid = (oldFatura.odenen || oldFatura.Odenen || 0) > 0 || (oldFatura.odemeSekli && oldFatura.odemeSekli !== 'Açık' && oldFatura.odemeSekli !== 'Acik');
+      const genelToplam = parseFloat(oldFatura.genelToplam ?? oldFatura.GenelToplam) || 0;
 
       const toKeyList = (raw: any) => {
         if (!raw) return [];
@@ -788,8 +794,9 @@ export default function FaturalarScreen({ route, navigation }: any) {
       const shRaw = await readData('StokHareketler') || {};
       const shList = toKeyList(shRaw);
       const matchSh = shList.filter((h: any) =>
-        (h.faturaId === faturaId || h.FaturaId === faturaId || String(h.faturaId) === String(faturaId)) ||
-        (faturaNo && h.evrakNo && String(h.evrakNo).trim().toLowerCase() === faturaNo.trim().toLowerCase())
+        (h.faturaId !== undefined && (String(h.faturaId) === String(faturaId) || String(h.faturaId) === String(faturaIdVal))) ||
+        (h.FaturaId !== undefined && (String(h.FaturaId) === String(faturaId) || String(h.FaturaId) === String(faturaIdVal))) ||
+        (faturaNo && h.evrakNo && String(h.evrakNo).trim().toLowerCase() === faturaNo.toLowerCase())
       );
 
       if (!detaylar.length && matchSh.length > 0) {
@@ -852,30 +859,42 @@ export default function FaturalarScreen({ route, navigation }: any) {
         }
       }
 
-      const freshCari = await readData(`Cariler/${oldFatura.cariId}`);
-      const cariRef = freshCari || cariler.find(c => c.id === oldFatura.cariId);
-      if (cariRef) {
-        const updatedCari = { ...cariRef };
-        if (isPaid) {
-          updatedCari.borc = Math.max(0, (updatedCari.borc || 0) - genelToplam);
-          updatedCari.alacak = Math.max(0, (updatedCari.alacak || 0) - genelToplam);
-        } else if (isSatis) {
-          updatedCari.borc = Math.max(0, (updatedCari.borc || 0) - genelToplam);
-        } else {
-          updatedCari.alacak = Math.max(0, (updatedCari.alacak || 0) - genelToplam);
-        }
-        const okCariRevert = await writeData(`Cariler/${oldFatura.cariId}`, updatedCari);
-        if (!okCariRevert) {
-          Alert.alert('Uyarı', 'Cari bakiye geri alınamadı. (Bağlantı sorunu — bakiye sıraya alındı.)');
+      if (oldCariId !== undefined && oldCariId !== null) {
+        const freshCari = await readData(`Cariler/${oldCariId}`);
+        const cariRef = freshCari || cariler.find(c => String(c.id) === String(oldCariId));
+        if (cariRef) {
+          const updatedCari = { ...cariRef };
+          if (isPaid) {
+            updatedCari.borc = Math.max(0, (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) - genelToplam);
+            updatedCari.alacak = Math.max(0, (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0) - genelToplam);
+          } else if (isSatis) {
+            updatedCari.borc = Math.max(0, (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) - genelToplam);
+          } else {
+            updatedCari.alacak = Math.max(0, (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0) - genelToplam);
+          }
+                    updatedCari.bakiye = (parseFloat(updatedCari.borc ?? updatedCari.Borc) || 0) - (parseFloat(updatedCari.alacak ?? updatedCari.Alacak) || 0);
+          updatedCari.updatedAt = new Date().toISOString();
+          updatedCari.version = (cariRef.version || 0) + 1;
+          const okCariRevert = await writeData(`Cariler/${oldCariId}`, updatedCari);
+          if (!okCariRevert) {
+            Alert.alert('Uyarı', 'Cari bakiye geri alınamadı. (Bağlantı sorunu — bakiye sıraya alındı.)');
+          }
         }
       }
 
       const chRaw = await readData('CariHareketler') || {};
-      const chList = Array.isArray(chRaw) ? chRaw.filter(Boolean) : Object.keys(chRaw).map(key => ({ ...(chRaw as any)[key], firebaseKey: key }));
+      const chList = toKeyList(chRaw);
       for (const h of chList) {
-        const hEvrak = h.evrakNo || h.EvrakNo || '';
-        if (h.faturaId === faturaId || h.FaturaId === faturaId || hEvrak === faturaNo || hEvrak === `KPL-${faturaNo}`) {
-          try { await deleteData(`CariHareketler/${h.firebaseKey || h.id}`); } catch (e) { console.error('CariHareket silme hatası:', e); }
+        const hEvrak = String(h.evrakNo || h.EvrakNo || '').trim().toLowerCase();
+        const hFId = h.faturaId !== undefined ? h.faturaId : h.FaturaId;
+        const match =
+          (hFId !== undefined && (String(hFId) === String(faturaId) || String(hFId) === String(faturaIdVal))) ||
+          (faturaNo && (hEvrak === faturaNo.toLowerCase() || hEvrak === `kpl-${faturaNo.toLowerCase()}`));
+        if (match) {
+          const k = h.firebaseKey || h.id;
+          if (k) {
+            try { await deleteData(`CariHareketler/${k}`); } catch (e) { console.error('CariHareket silme hatası:', e); }
+          }
         }
       }
 
