@@ -104,24 +104,6 @@
           }
         }
       },
-      "FirebaseDatabase.net/5.0.0": {
-        "type": "package",
-        "dependencies": {
-          "LiteDB": "5.0.17",
-          "Newtonsoft.Json": "13.0.3",
-          "System.Reactive": "6.0.0"
-        },
-        "compile": {
-          "lib/netstandard2.0/Firebase.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/netstandard2.0/Firebase.dll": {
-            "related": ".xml"
-          }
-        }
-      },
       "FluentValidation/12.1.1": {
         "type": "package",
         "compile": {
@@ -892,19 +874,6 @@
         },
         "runtime": {
           "lib/netstandard2.0/JsonSubTypes.dll": {}
-        }
-      },
-      "LiteDB/5.0.17": {
-        "type": "package",
-        "compile": {
-          "lib/netstandard2.0/LiteDB.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/netstandard2.0/LiteDB.dll": {
-            "related": ".xml"
-          }
         }
       },
       "Microsoft.AspNetCore.Authorization/9.0.9": {
@@ -3432,7 +3401,6 @@
         "dependencies": {
           "ClosedXML": "0.102.3",
           "CommunityToolkit.Mvvm": "8.4.0",
-          "FirebaseDatabase.net": "5.0.0",
           "FluentValidation": "12.1.1",
           "Humanizer": "3.0.10",
           "InfluxDB.Client": "5.0.0",
@@ -3675,19 +3643,6 @@
         "lib/netstandard1.0/ExcelNumberFormat.xml",
         "lib/netstandard2.0/ExcelNumberFormat.dll",
         "lib/netstandard2.0/ExcelNumberFormat.xml"
-      ]
-    },
-    "FirebaseDatabase.net/5.0.0": {
-      "sha512": "tU2JF31msyK30cN1fqcRfeyRikobOfx9FKmgHVINHSN0NnP+DqG89KkFdd5ebefDLthG4Ac9yLnXjOpeEX+52g==",
-      "type": "package",
-      "path": "firebasedatabase.net/5.0.0",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "firebasedatabase.net.5.0.0.nupkg.sha512",
-        "firebasedatabase.net.nuspec",
-        "lib/netstandard2.0/Firebase.dll",
-        "lib/netstandard2.0/Firebase.xml"
       ]
     },
     "FluentValidation/12.1.1": {
@@ -4740,26 +4695,6 @@
         "lib/net47/JsonSubTypes.dll",
         "lib/netstandard1.3/JsonSubTypes.dll",
         "lib/netstandard2.0/JsonSubTypes.dll"
-      ]
-    },
-    "LiteDB/5.0.17": {
-      "sha512": "cKPvkdlzIts3ZKu/BzoIc/Y71e4VFKlij4LyioPFATZMot+wB7EAm1FFbZSJez6coJmQUoIg/3yHE1MMU+zOdg==",
-      "type": "package",
-      "path": "litedb/5.0.17",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "AppVeyorSettings.json",
-        "LICENSE",
-        "icon_64x64.png",
-        "lib/net45/LiteDB.dll",
-        "lib/net45/LiteDB.xml",
-        "lib/netstandard1.3/LiteDB.dll",
-        "lib/netstandard1.3/LiteDB.xml",
-        "lib/netstandard2.0/LiteDB.dll",
-        "lib/netstandard2.0/LiteDB.xml",
-        "litedb.5.0.17.nupkg.sha512",
-        "litedb.nuspec"
       ]
     },
     "Microsoft.AspNetCore.Authorization/9.0.9": {

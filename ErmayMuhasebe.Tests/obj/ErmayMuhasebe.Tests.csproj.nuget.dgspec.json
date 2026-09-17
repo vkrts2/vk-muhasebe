@@ -55,11 +55,6 @@
               "version": "[8.4.0, )",
               "versionCentrallyManaged": true
             },
-            "FirebaseDatabase.net": {
-              "target": "Package",
-              "version": "[5.0.0, )",
-              "versionCentrallyManaged": true
-            },
             "FluentValidation": {
               "target": "Package",
               "version": "[12.1.1, )",

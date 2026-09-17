@@ -1,7 +1,7 @@
 # VK Muhasebe - Otomatik iOS IPA Indirme Scripti
 $ErrorActionPreference = "Stop"
 
-$repo = "vkrts1/vk-muhasebe"
+$repo = "vkrts2/vk-muhasebe"
 $desktopPath = [Environment]::GetFolderPath('Desktop')
 $targetFile = Join-Path $desktopPath "VK.ipa"
 $releaseUrl = "https://github.com/$repo/releases/download/latest-ios/VK.ipa"

@@ -584,7 +584,6 @@ E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\CommunityTo
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\CsvHelper.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\DocumentFormat.OpenXml.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\ExcelNumberFormat.dll
-E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Firebase.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\FluentValidation.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\HarfBuzzSharp.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Humanizer.dll
@@ -592,7 +591,6 @@ E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\InfluxDB.Cl
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\InfluxDB.Client.Core.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Irony.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\JsonSubTypes.dll
-E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\LiteDB.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Microsoft.AspNetCore.Authorization.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Microsoft.AspNetCore.Components.dll
 E:\avalonia yedek\ermaymuhasebe\ErmayMuhasebe.Tests\bin\Debug\net9.0\Microsoft.AspNetCore.Components.Authorization.dll
