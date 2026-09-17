@@ -328,28 +328,57 @@ export const updateDataBatch = async (updates: Record<string, any>): Promise<boo
 };
 
 export const subscribeToPath = (path: string, callback: (data: any) => void): (() => void) => {
-  const { table } = parsePath(path);
-  
-  readData(path).then(data => {
-    if (data !== null) callback(data);
-  });
+  try {
+    const { table } = parsePath(path);
+    if (!table) return () => {};
 
-  const channel = supabase
-    .channel(`public:${table}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table },
-      () => {
-        readData(path).then(data => {
-          if (data !== null) callback(data);
-        });
+    let isActive = true;
+
+    // Initial read
+    readData(path)
+      .then((data) => {
+        if (isActive && data !== null) {
+          callback(data);
+        }
+      })
+      .catch((err) => {
+        console.warn(`[Supabase] Initial read error on ${path}:`, err);
+      });
+
+    // Generate unique channel name per subscription to avoid "cannot add postgres_changes callbacks after subscribe()"
+    const uniqueChannelName = `sub_${table}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const channel = supabase
+      .channel(uniqueChannelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table },
+        () => {
+          if (!isActive) return;
+          readData(path)
+            .then((data) => {
+              if (isActive && data !== null) {
+                callback(data);
+              }
+            })
+            .catch((err) => {
+              console.warn(`[Supabase] Realtime read error on ${path}:`, err);
+            });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isActive = false;
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        console.warn(`[Supabase] removeChannel error on ${uniqueChannelName}:`, e);
       }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    };
+  } catch (err) {
+    console.error(`[Supabase] subscribeToPath exception on ${path}:`, err);
+    return () => {};
+  }
 };
 
 export const updateFutureBalances = async (
