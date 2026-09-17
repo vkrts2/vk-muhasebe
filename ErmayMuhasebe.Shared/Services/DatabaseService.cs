@@ -407,6 +407,14 @@ namespace ErmayMuhasebe.Services
 
                 if (!IsTestMode)
                 {
+                    // Otomatik Kurtarma: Bulut eşitleme hatası sebebiyle yanlışlıkla IsDeleted=1 yapılmış geçerli carileri ve stokları kurtar
+                    try
+                    {
+                        await _db.ExecuteAsync("UPDATE CariKart SET IsDeleted = 0 WHERE IsDeleted = 1 AND Unvan IS NOT NULL AND TRIM(Unvan) != '';");
+                        await _db.ExecuteAsync("UPDATE StokKart SET IsDeleted = 0 WHERE IsDeleted = 1 AND StokAdi IS NOT NULL AND TRIM(StokAdi) != '';");
+                    }
+                    catch { }
+
                     await MigrateMissingDataFromGlobalDbAsync();
                     StartCloudListeners();
                     _ = Task.Run(async () =>
@@ -4768,9 +4776,10 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudCariIds.Contains(local.Id) && !local.IsDeleted)
                     {
-                        local.IsDeleted = true;
-                        await _db.UpdateAsync(local);
-                        hasAnyChanges = true;
+                        // Masaüstü Source of Truth: Yereldeki kayıt bulutta yok diye silinmez, aksine buluta yüklenir!
+                        _ = Task.Run(async () => {
+                            try { await _sync.SyncCariAsync(local); } catch { }
+                        });
                     }
                 }
 
@@ -4894,9 +4903,10 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudStokIds.Contains(local.Id) && !local.IsDeleted)
                     {
-                        local.IsDeleted = true;
-                        await _db.UpdateAsync(local);
-                        hasAnyChanges = true;
+                        // Masaüstü Source of Truth: Yereldeki stok bulutta yok diye silinmez, buluta yüklenir!
+                        _ = Task.Run(async () => {
+                            try { await _sync.SyncStokAsync(local); } catch { }
+                        });
                     }
                 }
 

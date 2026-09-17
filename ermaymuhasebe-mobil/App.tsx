@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, Text, AppState } from 'react-native';
+import { View, ActivityIndicator, Text, AppState, TouchableOpacity } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
 import LoginScreen from './src/screens/LoginScreen';
@@ -8,6 +8,40 @@ import LockScreen from './src/screens/LockScreen';
 import { loadConfigFromStorage, getFirebaseConfig, addConfigListener, getLoggedUser } from './src/services/firebase';
 import { recordBackground, shouldLock, clearBackgroundRecord } from './src/services/lockService';
 import { loadFirmaProfili } from './src/services/pdfService';
+
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, errorText: string }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorText: '' };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorText: error?.message || 'Bilinmeyen hata' };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.warn('[ErrorBoundary] Caught:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0A0A0A', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <Text style={{ color: '#EF4444', fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>Geçici Bir Sorun Oluştu</Text>
+          <Text style={{ color: '#94A3B8', textAlign: 'center', fontSize: 13, marginBottom: 16 }}>{this.state.errorText}</Text>
+          <TouchableOpacity 
+            onPress={() => this.setState({ hasError: false, errorText: '' })}
+            style={{ backgroundColor: '#0061FF', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>Yeniden Dene</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [isConfigured, setIsConfigured] = useState<boolean>(false);
@@ -128,7 +162,9 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      {content}
+      <ErrorBoundary>
+        {content}
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }
