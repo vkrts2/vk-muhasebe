@@ -591,18 +591,28 @@ export default function FaturaFormScreen({ route, navigation }: any) {
     batchUpdates[`Faturalar/${currentId}`] = faturaData;
 
     // 2. Prepare FaturaDetaylar
-    const detayItems = items.map((item, idx) => ({
-      id: generateInt32Id() + idx,
-      faturaId: currentId,
-      stokId: item.stokId,
-      stokAdi: item.stokAdi,
-      miktar: item.miktar,
-      birim: item.birim,
-      birimFiyat: item.birimFiyat,
-      toplamTutar: item.miktar * item.birimFiyat,
-      kdvOrani: item.kdvOrani,
-      aciklama: item.aciklama || '',
-    }));
+    const detayItems = items.map((item, idx) => {
+      const miktarNum = parseFloat(item.miktar) || 0;
+      const fiyatNum = parseFloat(item.birimFiyat) || 0;
+      const kdvOranNum = parseInt(item.kdvOrani) || 0;
+      const tutarNum = miktarNum * fiyatNum;
+      const kdvTutariNum = (tutarNum * kdvOranNum) / 100;
+      return {
+        id: generateInt32Id() + idx,
+        faturaId: currentId,
+        stokId: item.stokId,
+        stokKodu: item.stokKodu || '',
+        stokAdi: item.stokAdi || '',
+        miktar: miktarNum,
+        birim: item.birim || 'Adet',
+        birimFiyat: fiyatNum,
+        kdvOrani: kdvOranNum,
+        kdvTutari: kdvTutariNum,
+        toplamTutar: tutarNum,
+        tutar: tutarNum,
+        aciklama: item.aciklama || '',
+      };
+    });
     batchUpdates[`FaturaDetaylar/${currentId}`] = detayItems;
 
     // 2.5 Prepare StokHareketler

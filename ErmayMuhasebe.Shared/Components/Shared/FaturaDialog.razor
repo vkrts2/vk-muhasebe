@@ -252,16 +252,23 @@
             selectedCari = allCariler.FirstOrDefault(c => c.Id == ExistingFatura.CariId);
             
             var details = await DbService.GetFaturaDetaylarAsync(ExistingFatura.Id);
-            faturaKalemleri = details.Select(d => new FaturaKalemi {
-                StokId = d.StokId,
-                UrunAdi = d.StokAdi ?? "",
-                Miktar = (int)d.Miktar,
-                BirimFiyat = d.BirimFiyat,
-                Birim = d.Birim ?? "Adet",
-                KDVOrani = d.KDVOrani,
-                Toplam = d.Tutar,
-                KDVTutari = d.KDVTutari,
-                GenelToplam = d.Tutar + d.KDVTutari
+            faturaKalemleri = details.Select(d => {
+                decimal birimFiyat = d.BirimFiyat;
+                int miktar = (int)d.Miktar;
+                int kdvOran = d.KDVOrani;
+                decimal toplam = (d.ToplamTutar > 0) ? d.ToplamTutar : ((d.Tutar > 0) ? d.Tutar : (miktar * birimFiyat));
+                decimal kdvTutari = (d.KDVTutari > 0) ? d.KDVTutari : ((d.KdvTutari > 0) ? d.KdvTutari : (toplam * kdvOran / 100m));
+                return new FaturaKalemi {
+                    StokId = d.StokId,
+                    UrunAdi = d.StokAdi ?? "",
+                    Miktar = miktar,
+                    BirimFiyat = birimFiyat,
+                    Birim = d.Birim ?? "Adet",
+                    KDVOrani = kdvOran,
+                    Toplam = toplam,
+                    KDVTutari = kdvTutari,
+                    GenelToplam = toplam + kdvTutari
+                };
             }).ToList();
         }
         else 

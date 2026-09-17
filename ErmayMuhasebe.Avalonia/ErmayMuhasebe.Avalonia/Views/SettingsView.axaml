@@ -551,56 +551,7 @@
                                     </StackPanel>
                                 </Expander>
 
-                                <!-- KART 5: Telegram ve Firebase Altyapı Ayarları (Yalnızca Admin) -->
-                                <Expander Header="Yönetici Paneli: Telegram Bot ve Firebase Altyapı Ayarları" IsVisible="{Binding IsAdmin}" Width="800" HorizontalAlignment="Left" CornerRadius="12" BorderBrush="{DynamicResource BorderColor}" Background="rgba(255, 255, 255, 0.01)" Padding="15">
-                                    <StackPanel Spacing="15">
-                                        <!-- Telegram Ayarları -->
-                                        <TextBlock Text="Şifre Sıfırlama Telegram Bot Bilgileri" FontSize="13" FontWeight="Bold" Opacity="0.8"/>
-                                        <Grid ColumnDefinitions="*, 15, *">
-                                            <StackPanel Grid.Column="0" Spacing="5">
-                                                <TextBlock Text="Bot Token" FontSize="11" Opacity="0.7"/>
-                                                <TextBox Text="{Binding TelegramBotToken}" Watermark="Telegram Bot Token" Height="40" CornerRadius="8"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="2" Spacing="5">
-                                                <TextBlock Text="Sistem Chat ID" FontSize="11" Opacity="0.7"/>
-                                                <TextBox Text="{Binding TelegramChatId}" Watermark="Sistem Chat ID" Height="40" CornerRadius="8"/>
-                                            </StackPanel>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
-                                            <Button Grid.Column="0" Command="{Binding TestTelegramConnectionCommand}" Classes="Info" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                                                <TextBlock Text="Bot Bağlantı Testi"/>
-                                            </Button>
-                                            <Button Grid.Column="1" Command="{Binding SaveTelegramSettingsCommand}" Content="Telegram Ayarlarını Kaydet" Classes="Primary" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                                        </Grid>
-
-                                        <Separator Background="{DynamicResource BorderColor}" Margin="0,5"/>
-
-                                        <!-- Firebase Auth Ayarları -->
-                                        <Grid ColumnDefinitions="*, Auto" Margin="0,5">
-                                            <StackPanel Grid.Column="0" Spacing="2">
-                                                <TextBlock Text="Firebase Kimlik Doğrulama (Auth)" FontSize="13" FontWeight="Bold" Opacity="0.8"/>
-                                                <TextBlock Text="Ortak oturum açma altyapısını aktif hale getirin." FontSize="11" Foreground="#94a3b8"/>
-                                            </StackPanel>
-                                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding IsFirebaseAuthEnabled}" OnContent="Aktif" OffContent="Pasif"/>
-                                        </Grid>
-                                        
-                                        <StackPanel Spacing="15" IsVisible="{Binding IsFirebaseAuthEnabled}">
-                                            <Grid ColumnDefinitions="*, 15, *">
-                                                <StackPanel Grid.Column="0" Spacing="5">
-                                                    <TextBlock Text="Firebase Web API Anahtarı" FontSize="11" Opacity="0.7"/>
-                                                    <TextBox Text="{Binding FirebaseAuthApiKey}" Watermark="API Key" Height="40" CornerRadius="8"/>
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="2" Spacing="5">
-                                                    <TextBlock Text="Firebase Auth Domain" FontSize="11" Opacity="0.7"/>
-                                                    <TextBox Text="{Binding FirebaseAuthDomain}" Watermark="domain.firebaseapp.com" Height="40" CornerRadius="8"/>
-                                                </StackPanel>
-                                            </Grid>
-                                            <Button Command="{Binding SaveFirebaseAuthSettingsCommand}" Content="Firebase Ayarlarını Kaydet" Classes="Primary" Height="40" CornerRadius="8" HorizontalAlignment="Right" Padding="25,0"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Expander>
-
-                                <!-- KART 6: Fabrika Ayarları Sıfırlama (Yalnızca Admin) -->
+                                <!-- KART 5: Fabrika Ayarları Sıfırlama (Yalnızca Admin) -->
                                 <Expander Header="Yönetici Paneli: Fabrika Ayarları ve Sıfırlama Yetkisi" IsVisible="{Binding IsAdmin}" Width="800" HorizontalAlignment="Left" CornerRadius="12" BorderBrush="{DynamicResource BorderColor}" Background="rgba(255, 255, 255, 0.01)" Padding="15">
                                     <StackPanel Spacing="15">
                                         <TextBlock Text="Sistemi tamamen sıfırlamak için onay şifresini girin:" FontSize="12" Foreground="#94a3b8"/>
@@ -614,10 +565,7 @@
                                         <!-- Kurtarma Doğrulama -->
                                         <StackPanel Spacing="12" IsVisible="{Binding ShowFactoryResetVerificationPanel}">
                                             <Separator Background="{DynamicResource BorderColor}" Margin="0,5"/>
-                                            <Grid ColumnDefinitions="*, 15, *">
-                                                <Button Grid.Column="0" Command="{Binding SendFactoryResetCodeViaEmailCommand}" Content="E-posta ile Şifre Gönder" Classes="Info" Height="42" CornerRadius="10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                                                <Button Grid.Column="2" Command="{Binding SendFactoryResetCodeViaTelegramCommand}" Content="Telegram ile Şifre Gönder" Classes="Info" Height="42" CornerRadius="10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                                            </Grid>
+                                            <Button Command="{Binding SendFactoryResetCodeViaEmailCommand}" Content="E-posta ile Kurtarma Kodu Gönder" Classes="Info" Height="42" CornerRadius="10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                                             
                                             <StackPanel Spacing="12" IsVisible="{Binding IsFactoryResetCodeSent}">
                                                 <TextBox Text="{Binding FactoryResetVerificationCode}" Watermark="Doğrulama Kodu" Height="45" CornerRadius="10"/>
@@ -638,34 +586,34 @@
                                     <TextBlock Text="Bulut Senkronizasyon ve API Ayarları" FontSize="20" FontWeight="Bold"/>
                                 </StackPanel>
 
-                                <!-- 1. FIREBASE REALTIME DATABASE -->
+                                <!-- 1. SUPABASE BULUT VERİTABANI -->
                                 <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderColor}" BorderThickness="1" CornerRadius="14" Padding="20">
                                     <StackPanel Spacing="16">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <ic:SymbolIcon Symbol="Database" FontSize="18" Foreground="#60A5FA"/>
-                                            <TextBlock Text="Firebase Veritabanı (Realtime DB)" FontSize="15" FontWeight="Bold" Foreground="#60A5FA"/>
+                                            <TextBlock Text="Supabase Bulut Veritabanı (PostgreSQL)" FontSize="15" FontWeight="Bold" Foreground="#60A5FA"/>
                                         </StackPanel>
                                         
                                         <StackPanel Spacing="6">
                                             <TextBlock Text="Bulut Veritabanı URL" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
-                                            <TextBox Text="{Binding CloudUrl}" Watermark="https://your-project.firebaseio.com" Height="46" CornerRadius="10"/>
+                                            <TextBox Text="{Binding CloudUrl}" Watermark="https://your-project.supabase.co" Height="46" CornerRadius="10"/>
                                         </StackPanel>
 
                                         <StackPanel Spacing="6">
-                                            <TextBlock Text="Veritabanı Gizli Anahtarı (Database Secret / Auth Token)" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
-                                            <TextBox Text="{Binding CloudSecret}" PasswordChar="*" Watermark="Database Secret Key" Height="46" CornerRadius="10"/>
+                                            <TextBlock Text="Supabase Anon / API Anahtarı (Anon / Service Role Key)" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
+                                            <TextBox Text="{Binding CloudSecret}" PasswordChar="*" Watermark="Supabase API Key" Height="46" CornerRadius="10"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
 
-                                <!-- 2. GOOGLE CLOUD & FIREBASE QUESTPDF API -->
+                                <!-- 2. GOOGLE CLOUD & QUESTPDF API -->
                                 <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderColor}" BorderThickness="1" CornerRadius="14" Padding="20">
                                     <StackPanel Spacing="16">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <ic:SymbolIcon Symbol="DocumentPdf" FontSize="18" Foreground="#10B981"/>
-                                            <TextBlock Text="Bulut PDF Motoru (QuestPDF / Google Cloud Run API)" FontSize="15" FontWeight="Bold" Foreground="#10B981"/>
+                                            <TextBlock Text="Bulut PDF Motoru (QuestPDF API)" FontSize="15" FontWeight="Bold" Foreground="#10B981"/>
                                         </StackPanel>
-                                        <TextBlock Text="Mobil ve harici servisler için Cloud Run üzerinde çalışan QuestPDF sunucusunun bağlantı ve API anahtarı ayarları." FontSize="12" Foreground="#94a3b8"/>
+                                        <TextBlock Text="Mobil ve harici servisler için çalışan QuestPDF sunucusunun bağlantı ve API anahtarı ayarları." FontSize="12" Foreground="#94a3b8"/>
 
                                         <StackPanel Spacing="6">
                                             <TextBlock Text="QuestPDF Bulut Servis URL'si" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
@@ -673,8 +621,8 @@
                                         </StackPanel>
 
                                         <StackPanel Spacing="6">
-                                            <TextBlock Text="Google Cloud / Firebase Web API Anahtarı (API Key)" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
-                                            <TextBox Text="{Binding CloudPdfApiKey}" Watermark="AIzaSy... (Google Cloud Console veya Firebase Console Web API Key)" Height="46" CornerRadius="10"/>
+                                            <TextBlock Text="Bulut Web API Anahtarı (API Key)" FontSize="13" FontWeight="SemiBold" Opacity="0.8"/>
+                                            <TextBox Text="{Binding CloudPdfApiKey}" Watermark="Web API Key" Height="46" CornerRadius="10"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>

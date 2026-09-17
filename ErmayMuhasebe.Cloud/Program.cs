@@ -65,7 +65,7 @@ RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.TeklifListViewModel, ErmayMuha
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.SiparisDetayViewModel, ErmayMuhasebe.Cloud.ViewModels.SiparisDetayViewModel>(builder.Services);
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.TeklifDetayViewModel, ErmayMuhasebe.Cloud.ViewModels.TeklifDetayViewModel>(builder.Services);
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.BarkodTasarimViewModel, ErmayMuhasebe.Cloud.ViewModels.BarkodTasarimViewModel>(builder.Services);
-RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.FaturaTasarimViewModel, ErmayMuhasebe.Cloud.ViewModels.FaturaTasarimViewModel>(builder.Services);
+// RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.FaturaTasarimViewModel, ErmayMuhasebe.Cloud.ViewModels.FaturaTasarimViewModel>(builder.Services);
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.CariBirlestirmeViewModel, ErmayMuhasebe.Cloud.ViewModels.CariBirlestirmeViewModel>(builder.Services);
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.StokGrupDuzenleViewModel, ErmayMuhasebe.Cloud.ViewModels.StokGrupDuzenleViewModel>(builder.Services);
 RegisterViewModel<ErmayMuhasebe.Shared.ViewModels.BorcHatirlaticiViewModel, ErmayMuhasebe.Cloud.ViewModels.BorcHatirlaticiViewModel>(builder.Services);

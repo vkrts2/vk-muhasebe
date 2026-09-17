@@ -436,70 +436,93 @@
         } catch (Exception ex) { Snackbar.Add("Excel Hatası: " + ex.Message, Severity.Error); }
     }
 
+    private bool IsFaturaRelated(CariHareket hareket)
+    {
+        if (hareket == null) return false;
+        if (hareket.IslemTuru != null && hareket.IslemTuru.Contains("Fatura")) return true;
+        if (hareket.FaturaId.HasValue && hareket.FaturaId.Value > 0) return true;
+        if (!string.IsNullOrEmpty(hareket.EvrakNo))
+        {
+            var no = hareket.EvrakNo.Trim();
+            if (no.StartsWith("KPL-") || no.StartsWith("FAT") || no.StartsWith("SF-") || no.StartsWith("AF-") || no.StartsWith("FTR"))
+                return true;
+        }
+        return false;
+    }
+
+    private async Task<int?> ResolveFaturaIdAsync(CariHareket hareket)
+    {
+        if (hareket == null) return null;
+        if (hareket.FaturaId.HasValue && hareket.FaturaId.Value > 0) return hareket.FaturaId.Value;
+        if (!string.IsNullOrEmpty(hareket.EvrakNo))
+        {
+            string clean = hareket.EvrakNo.Replace("KPL-", "").Trim();
+            var fat = await DbService.GetFaturaByNoAsync(clean);
+            if (fat != null) return fat.Id;
+        }
+        return null;
+    }
+
     private async Task GoruntuleHareket(CariHareket hareket)
     {
-        if (hareket.IslemTuru != null && hareket.IslemTuru.Contains("Fatura"))
+        if (IsFaturaRelated(hareket))
         {
-            int? fatId = hareket.FaturaId;
-            if (!fatId.HasValue && !string.IsNullOrEmpty(hareket.EvrakNo))
+            int? fatId = await ResolveFaturaIdAsync(hareket);
+            var fat = fatId.HasValue ? await DbService.GetFaturaAsync(fatId.Value) : null;
+            if (fat != null || fatId.HasValue)
             {
-                var fat = await DbService.GetFaturaByNoAsync(hareket.EvrakNo.Replace("KPL-", "").Trim());
-                fatId = fat?.Id;
+                var parameters = new DialogParameters { 
+                    ["ExistingFaturaId"] = fatId, 
+                    ["ExistingFatura"] = fat,
+                    ["ReadOnly"] = true 
+                };
+                var options = new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true };
+                await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.FaturaDialog>("Fatura Görüntüle", parameters, options);
+                return;
             }
-            var parameters = new DialogParameters { 
-                ["ExistingFaturaId"] = fatId, 
-                ["ExistingFatura"] = fatId.HasValue ? await DbService.GetFaturaAsync(fatId.Value) : null,
-                ["ReadOnly"] = true 
-            };
-            var options = new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true };
-            await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.FaturaDialog>("Fatura Görüntüle", parameters, options);
         }
-        else
-        {
-            var parameters = new DialogParameters { 
-                ["ExistingHareket"] = hareket,
-                ["ExistingHareketId"] = hareket.Id, 
-                ["CariId"] = hareket.CariId,
-                ["CariUnvan"] = hareket.CariUnvan,
-                ["IslemTipi"] = hareket.IslemTuru,
-                ["ReadOnly"] = true 
-            };
-            await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.CariIslemDialog>("İşlem Görüntüle", parameters);
-        }
+
+        var paramList = new DialogParameters { 
+            ["ExistingHareket"] = hareket,
+            ["ExistingHareketId"] = hareket.Id, 
+            ["CariId"] = hareket.CariId,
+            ["CariUnvan"] = hareket.CariUnvan,
+            ["IslemTipi"] = hareket.IslemTuru,
+            ["ReadOnly"] = true 
+        };
+        await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.CariIslemDialog>("İşlem Görüntüle", paramList);
     }
 
     private async Task DuzenleHareket(CariHareket hareket)
     {
-        if (hareket.IslemTuru != null && hareket.IslemTuru.Contains("Fatura"))
+        if (IsFaturaRelated(hareket))
         {
-            int? fatId = hareket.FaturaId;
-            if (!fatId.HasValue && !string.IsNullOrEmpty(hareket.EvrakNo))
+            int? fatId = await ResolveFaturaIdAsync(hareket);
+            var fat = fatId.HasValue ? await DbService.GetFaturaAsync(fatId.Value) : null;
+            if (fat != null || fatId.HasValue)
             {
-                var fat = await DbService.GetFaturaByNoAsync(hareket.EvrakNo.Replace("KPL-", "").Trim());
-                fatId = fat?.Id;
+                var parameters = new DialogParameters { 
+                    ["ExistingFaturaId"] = fatId,
+                    ["ExistingFatura"] = fat
+                };
+                var options = new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true };
+                var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.FaturaDialog>("Fatura Düzenle", parameters, options);
+                var result = await dialog.Result;
+                if (result != null && !result.Canceled) { await LoadData(); LoadCariHareketler(); }
+                return;
             }
-            var parameters = new DialogParameters { 
-                ["ExistingFaturaId"] = fatId,
-                ["ExistingFatura"] = fatId.HasValue ? await DbService.GetFaturaAsync(fatId.Value) : null
-            };
-            var options = new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true };
-            var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.FaturaDialog>("Fatura Düzenle", parameters, options);
-            var result = await dialog.Result;
-            if (result != null && !result.Canceled) { await LoadData(); LoadCariHareketler(); }
         }
-        else
-        {
-            var parameters = new DialogParameters { 
-                ["ExistingHareket"] = hareket,
-                ["ExistingHareketId"] = hareket.Id,
-                ["CariId"] = hareket.CariId,
-                ["CariUnvan"] = hareket.CariUnvan,
-                ["IslemTipi"] = hareket.IslemTuru
-            };
-            var dialog = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.CariIslemDialog>("İşlem Düzenle", parameters);
-            var result = await dialog.Result;
-            if (result != null && !result.Canceled) { await LoadData(); LoadCariHareketler(); }
-        }
+
+        var paramEdit = new DialogParameters { 
+            ["ExistingHareket"] = hareket,
+            ["ExistingHareketId"] = hareket.Id,
+            ["CariId"] = hareket.CariId,
+            ["CariUnvan"] = hareket.CariUnvan,
+            ["IslemTipi"] = hareket.IslemTuru
+        };
+        var dialogEdit = await DialogService.ShowAsync<ErmayMuhasebe.Shared.Components.Shared.CariIslemDialog>("İşlem Düzenle", paramEdit);
+        var resultEdit = await dialogEdit.Result;
+        if (resultEdit != null && !resultEdit.Canceled) { await LoadData(); LoadCariHareketler(); }
     }
 
     private async Task SilHareket(CariHareket hareket)

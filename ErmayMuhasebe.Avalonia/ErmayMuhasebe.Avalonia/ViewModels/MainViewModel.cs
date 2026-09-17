@@ -516,7 +516,17 @@ public partial class MainViewModel : ViewModelBase
                     if (IsOffline)
                     {
                         IsOffline = false;
-                        _ = _uow.SyncToCloudAsync();
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await _uow.SyncToCloudAsync();
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Background SyncToCloudAsync error: {ex.Message}");
+                            }
+                        });
                     }
                 }
                 else
