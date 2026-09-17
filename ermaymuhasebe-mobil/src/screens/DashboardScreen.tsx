@@ -22,8 +22,13 @@ import { getUiScale, scaleFont, UiScale } from '../services/themeService';
 import { ShimmerItem } from '../components/Shimmer';
 import { AppleTheme } from '../theme/appleDesign';
 
-const formatMoney = (val: number) => {
-  return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+const formatMoney = (val: any) => {
+  const num = typeof val === 'number' ? val : (parseFloat(val) || 0);
+  try {
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(num);
+  } catch {
+    return `₺${num.toFixed(2)}`;
+  }
 };
 
 const parseSafeDate = (val: any): Date | null => {
@@ -359,7 +364,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        <View style={{ height: chartHeight, width: '100%', marginTop: 10 }}>
+        <View style={{ height: chartHeight, width: '100%', marginTop: 10 }} pointerEvents="none">
           <Svg height="100%" width="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
             <Defs>
               <LinearGradient id="targetGrad" x1="0" y1="0" x2="0" y2="1">
