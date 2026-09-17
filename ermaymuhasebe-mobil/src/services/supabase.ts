@@ -23,8 +23,8 @@ export interface ExtendedFirebaseConfig extends FirebaseConfig {
   smtpPass?: string;
 }
 
-export const DEFAULT_SUPABASE_URL = '';
-export const DEFAULT_SUPABASE_KEY = '';
+export const DEFAULT_SUPABASE_URL = 'https://fqgbdymffknglqeqoogt.supabase.co';
+export const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg';
 
 let cachedConfig: SupabaseConfig = {
   url: DEFAULT_SUPABASE_URL,
@@ -116,14 +116,25 @@ export const parsePath = (path: string): { table: string; id?: string; isDetail?
 };
 
 // --- Storage & Config ---
+export const cleanSupabaseUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return '';
+  let clean = rawUrl.trim();
+  while (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
+  if (clean.toLowerCase().endsWith('/rest/v1'))
+    clean = clean.substring(0, clean.length - '/rest/v1'.length);
+  while (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
+  return clean;
+};
+
 export const loadConfigFromStorage = async () => {
   try {
-    const url = await AsyncStorage.getItem('ermay_supabase_url');
+    const rawUrl = await AsyncStorage.getItem('ermay_supabase_url');
     const key = await AsyncStorage.getItem('ermay_supabase_key');
     const yr = await AsyncStorage.getItem('ermay_active_year');
-    if (url && key) {
-      cachedConfig = { url, anonKey: key, tenantId: 'default' };
-      supabase = createClient(url, key);
+    if (rawUrl && key) {
+      const url = cleanSupabaseUrl(rawUrl);
+      cachedConfig = { url, anonKey: key.trim(), tenantId: 'default' };
+      supabase = createClient(url, key.trim());
     }
     if (yr) cachedYear = yr;
   } catch (e) {
@@ -131,11 +142,13 @@ export const loadConfigFromStorage = async () => {
   }
 };
 
-export const saveSupabaseConfig = async (url: string, anonKey: string) => {
-  cachedConfig = { url, anonKey, tenantId: 'default' };
-  supabase = createClient(url, anonKey);
+export const saveSupabaseConfig = async (rawUrl: string, anonKey: string) => {
+  const url = cleanSupabaseUrl(rawUrl);
+  const cleanKey = (anonKey || '').trim();
+  cachedConfig = { url, anonKey: cleanKey, tenantId: 'default' };
+  supabase = createClient(url, cleanKey);
   await AsyncStorage.setItem('ermay_supabase_url', url);
-  await AsyncStorage.setItem('ermay_supabase_key', anonKey);
+  await AsyncStorage.setItem('ermay_supabase_key', cleanKey);
   notifyConfigListeners();
 };
 

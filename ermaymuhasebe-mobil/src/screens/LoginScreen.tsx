@@ -14,8 +14,8 @@ export default function LoginScreen({ onLoginSuccess, mode: initialMode = 'confi
   
   // Config Mode States (Supabase Bulut ve E-Posta)
   const [activeConfigTab, setActiveConfigTab] = useState<'cloud' | 'smtp'>('cloud');
-  const [url, setUrl] = useState('');
-  const [secret, setSecret] = useState('');
+  const [url, setUrl] = useState('https://fqgbdymffknglqeqoogt.supabase.co');
+  const [secret, setSecret] = useState('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg');
   
   // Kurulumda Belirlenecek Yönetici Hesabı
   const [configUsername, setConfigUsername] = useState('');
