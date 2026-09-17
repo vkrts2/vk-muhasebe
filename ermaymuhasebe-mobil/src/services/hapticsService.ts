@@ -8,54 +8,44 @@ try {
 }
 
 /**
- * Apple Taptic Engine Feedback Service
+ * Apple Taptic Engine Feedback Service (Safe Execution)
  */
 export function triggerLightHaptic() {
   try {
-    if (Haptics) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Haptics && Haptics.impactAsync && Haptics.ImpactFeedbackStyle) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-  } catch (e) {
-    // Graceful fallback
-  }
+  } catch (e) {}
 }
 
 export function triggerMediumHaptic() {
   try {
-    if (Haptics) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Haptics && Haptics.impactAsync && Haptics.ImpactFeedbackStyle) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
-  } catch (e) {
-    // Graceful fallback
-  }
+  } catch (e) {}
 }
 
 export function triggerSelectionHaptic() {
   try {
-    if (Haptics) {
-      Haptics.selectionAsync();
+    if (Haptics && Haptics.selectionAsync) {
+      Haptics.selectionAsync().catch(() => {});
     }
-  } catch (e) {
-    // Graceful fallback
-  }
+  } catch (e) {}
 }
 
 export function triggerSuccessHaptic() {
   try {
-    if (Haptics) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Haptics && Haptics.notificationAsync && Haptics.NotificationFeedbackType) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
-  } catch (e) {
-    // Graceful fallback
-  }
+  } catch (e) {}
 }
 
 export function triggerErrorHaptic() {
   try {
-    if (Haptics) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    if (Haptics && Haptics.notificationAsync && Haptics.NotificationFeedbackType) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     }
-  } catch (e) {
-    // Graceful fallback
-  }
+  } catch (e) {}
 }

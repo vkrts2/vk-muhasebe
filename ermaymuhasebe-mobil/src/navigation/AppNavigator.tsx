@@ -75,94 +75,19 @@ const getPillX = (idx: number) => {
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const activeIndex = state.index;
   const pillAnimX = useRef(new Animated.Value(getPillX(activeIndex))).current;
-  const pillScaleAnim = useRef(new Animated.Value(1)).current;
-  const isDragging = useRef(false);
-  const dragStartX = useRef(getPillX(activeIndex));
 
   // Sync pill animation whenever activeIndex changes
   useEffect(() => {
-    isDragging.current = false;
     Animated.spring(pillAnimX, {
       toValue: getPillX(activeIndex),
       useNativeDriver: true,
-      tension: 140,
-      friction: 16,
+      tension: 150,
+      friction: 18,
     }).start();
   }, [activeIndex]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Only capture explicit horizontal drag gestures (> 15px)
-        return (
-          Math.abs(gestureState.dx) > 15 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2
-        );
-      },
-      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return (
-          Math.abs(gestureState.dx) > 15 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2
-        );
-      },
-      onPanResponderGrant: () => {
-        isDragging.current = true;
-        dragStartX.current = getPillX(state.index);
-        Animated.spring(pillScaleAnim, {
-          toValue: 1.05,
-          useNativeDriver: true,
-          bounciness: 4,
-        }).start();
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const targetX = dragStartX.current + gestureState.dx;
-        const clampedX = Math.max(
-          PADDING_H,
-          Math.min(BAR_WIDTH - PADDING_H - PILL_WIDTH, targetX)
-        );
-        pillAnimX.setValue(clampedX);
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        isDragging.current = false;
-        Animated.spring(pillScaleAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-        }).start();
-
-        const currentX = dragStartX.current + gestureState.dx;
-        const rawIndex = Math.round((currentX - PADDING_H) / TAB_WIDTH);
-        const targetIndex = Math.max(0, Math.min(NUM_TABS - 1, rawIndex));
-
-        triggerSelectionHaptic();
-        navigation.navigate(state.routes[targetIndex].name);
-
-        Animated.spring(pillAnimX, {
-          toValue: getPillX(targetIndex),
-          useNativeDriver: true,
-          tension: 140,
-          friction: 16,
-        }).start();
-      },
-      onPanResponderTerminate: () => {
-        isDragging.current = false;
-        Animated.spring(pillScaleAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-        }).start();
-        Animated.spring(pillAnimX, {
-          toValue: getPillX(state.index),
-          useNativeDriver: true,
-          tension: 140,
-          friction: 16,
-        }).start();
-      },
-    })
-  ).current;
-
   const renderBarContent = () => (
-    <View style={styles.barBackground} {...panResponder.panHandlers}>
+    <View style={styles.barBackground}>
       {/* Animated Sliding Liquid Pill Highlight */}
       <Animated.View
         style={[
@@ -172,8 +97,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             height: PILL_HEIGHT,
             transform: [
               { translateX: pillAnimX },
-              { scale: pillScaleAnim },
-            ],
+                          ],
           },
         ]}
       >
