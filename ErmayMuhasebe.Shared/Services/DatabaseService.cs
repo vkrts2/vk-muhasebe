@@ -4811,25 +4811,11 @@ namespace ErmayMuhasebe.Services
                 var localFaturalar = await _db.Table<Fatura>().ToListAsync();
                 foreach (var local in localFaturalar)
                 {
-                    if (!cloudFaturaIds.Contains(local.Id))
+                    if (!cloudFaturaIds.Contains(local.Id) && !local.IsDeleted)
                     {
-                        if (DateTime.Now.Subtract(local.UpdatedAt).TotalMinutes < 5 && !local.IsDeleted)
-                        {
-                            continue;
-                        }
-                        await _db.DeleteAsync(local);
-                        var localDetails = await _db.Table<FaturaDetay>().Where(x => x.FaturaId == local.Id).ToListAsync();
-                        foreach (var d in localDetails) await _db.DeleteAsync(d);
-
-                        string localFtrNo = local.FaturaNo ?? "";
-                        string kplLocalFtrNo = "KPL-" + localFtrNo;
-                        var orphanCH = await _db.Table<CariHareket>().Where(x => x.FaturaId == local.Id || (localFtrNo != "" && (x.EvrakNo == localFtrNo || x.EvrakNo == kplLocalFtrNo))).ToListAsync();
-                        foreach (var ch in orphanCH) await _db.DeleteAsync(ch);
-
-                        var orphanSH = await _db.Table<StokHareket>().Where(x => x.FaturaId == local.Id || x.EvrakNo == local.FaturaNo).ToListAsync();
-                        foreach (var sh in orphanSH) await _db.DeleteAsync(sh);
-
-                        hasAnyChanges = true;
+                        _ = Task.Run(async () => {
+                            try { await _sync.SyncFaturaAsync(local); } catch { }
+                        });
                     }
                 }
 
@@ -4940,8 +4926,9 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudStokHareketIds.Contains(local.Id))
                     {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
+                        _ = Task.Run(async () => {
+                            try { await _sync.SyncStokHareketAsync(local); } catch { }
+                        });
                     }
                 }
 
@@ -4997,12 +4984,9 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudCariHareketIds.Contains(local.Id))
                     {
-                        if (DateTime.Now.Subtract(local.Tarih).TotalMinutes < 5)
-                        {
-                            continue;
-                        }
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
+                        _ = Task.Run(async () => {
+                            try { await _sync.SyncCariHareketAsync(local); } catch { }
+                        });
                     }
                 }
 
