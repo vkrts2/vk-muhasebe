@@ -674,9 +674,9 @@ namespace ErmayMuhasebe.Services
 
         public async Task SyncUsersWithCloudAsync()
         {
-            if (!_sync.IsConnected) return;
             try
             {
+                if (!_sync.IsConnected) return;
                 var cloudUsers = await _sync.PullUsersAsync();
                 var globalConn = GetGlobalConnection();
                 await globalConn.CreateTableAsync<User>();

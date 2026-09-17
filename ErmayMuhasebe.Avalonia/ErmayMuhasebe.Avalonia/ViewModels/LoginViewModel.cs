@@ -155,7 +155,11 @@ public partial class LoginViewModel : ViewModelBase
                                     existing.PasswordSalt = salt;
                                     if (!string.IsNullOrEmpty(uEmail)) existing.Email = uEmail;
                                     conn.UpdateAsync(existing).GetAwaiter().GetResult();
-                                    _ = Task.Run(async () => await _dbService.SyncService.SyncUserAsync(existing));
+                                    _ = Task.Run(async () =>
+                                    {
+                                        try { await _dbService.SyncService.SyncUserAsync(existing); }
+                                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
+                                    });
                                 }
                                 else
                                 {
@@ -169,7 +173,11 @@ public partial class LoginViewModel : ViewModelBase
                                         CreatedAt = DateTime.Now
                                     };
                                     conn.InsertAsync(nu).GetAwaiter().GetResult();
-                                    _ = Task.Run(async () => await _dbService.SyncService.SyncUserAsync(nu));
+                                    _ = Task.Run(async () =>
+                                    {
+                                        try { await _dbService.SyncService.SyncUserAsync(nu); }
+                                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
+                                    });
                                 }
 
                                 if (uName.ToLower() != "admin")
@@ -254,7 +262,17 @@ public partial class LoginViewModel : ViewModelBase
             }
 
             // Arka planda buluttaki kullanıcıları yerel veritabanına senkronize et
-            _ = Task.Run(async () => await _dbService.SyncUsersWithCloudAsync());
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _dbService.SyncUsersWithCloudAsync();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUsersWithCloudAsync error: {ex.Message}");
+                }
+            });
 
             var path = GetCredentialsPath();
             if (System.IO.File.Exists(path))
@@ -276,11 +294,18 @@ public partial class LoginViewModel : ViewModelBase
                             _isInitialStartup = false;
                             _ = Task.Run(async () =>
                             {
-                                await Task.Delay(150);
-                                await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                                try
                                 {
-                                    await LoginAsync();
-                                });
+                                    await Task.Delay(150);
+                                    await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                                    {
+                                        await LoginAsync();
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[LoginVM] AutoLogin error: {ex.Message}");
+                                }
                             });
                         }
                     }
