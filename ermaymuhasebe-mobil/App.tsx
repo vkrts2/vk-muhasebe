@@ -3,6 +3,7 @@ import { View, ActivityIndicator, Text, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
 import LoginScreen from './src/screens/LoginScreen';
+import AsyncStorage from './src/services/storage';
 import LockScreen from './src/screens/LockScreen';
 import { loadConfigFromStorage, getFirebaseConfig, addConfigListener, getLoggedUser } from './src/services/firebase';
 import { recordBackground, shouldLock, clearBackgroundRecord } from './src/services/lockService';
@@ -66,7 +67,13 @@ export default function App() {
   const handleLoginSuccess = async () => {
     console.log('[APP] handleLoginSuccess çağrıldı');
     // Giriş başarılı olunca kullanıcıyı yeniden yükle
-    const user = await getLoggedUser();
+    let user = await getLoggedUser();
+    if (!user) {
+      const savedUser = await AsyncStorage.getItem('ermay_saved_username');
+      if (savedUser) {
+        user = { id: savedUser, username: savedUser, email: `${savedUser}@ermay.local`, user_metadata: { role: 'Admin', fullName: savedUser } };
+      }
+    }
     console.log('[APP] getLoggedUser sonucu:', user ? JSON.stringify(user) : 'NULL');
     setLoggedUser(user);
     const config = getFirebaseConfig();

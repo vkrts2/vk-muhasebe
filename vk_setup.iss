@@ -81,8 +81,8 @@ begin
 
   SupabasePage.Add('Supabase Proje URL (Örn: https://xxxx.supabase.co):', False);
   SupabasePage.Add('Supabase Anon / API Anahtarı (anon public key):', False);
-  SupabasePage.Values[0] := 'https://fqgbdymffknglqeqoogt.supabase.co';
-  SupabasePage.Values[1] := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg';
+  SupabasePage.Values[0] := '';
+  SupabasePage.Values[1] := '';
 
   // 3. Kullanıcı 1 (Ana Yönetici) ve Sistem Sıfırlama Şifresi Belirleme Sayfası
   User1Page := CreateInputQueryPage(SupabasePage.ID,

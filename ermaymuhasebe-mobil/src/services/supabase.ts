@@ -39,6 +39,7 @@ let cachedExtendedConfig: ExtendedFirebaseConfig = {
 };
 
 let cachedYear: string = new Date().getFullYear().toString();
+let cachedSessionUser: any = null;
 let supabase: SupabaseClient = createClient(cachedConfig.url, cachedConfig.anonKey);
 
 let configListeners: (() => void)[] = [];
@@ -437,19 +438,37 @@ export const toKasaRecord = (kasa: any): any => ({
   isDeleted: kasa.isDeleted === true
 });
 
-// --- Auth Compatibility ---
+// --- Auth Compatibility & Hybrid Session Management ---
+import * as Crypto from 'expo-crypto';
+
+export const hashPasswordAsync = async (password: string, salt?: string): Promise<string> => {
+  try {
+    const textToHash = salt ? password + salt : password;
+    return await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      textToHash,
+      { encoding: Crypto.CryptoEncoding.BASE64 }
+    );
+  } catch (e) {
+    return password;
+  }
+};
+
 export const registerInitialUser = async (username: string, password: string, email?: string): Promise<boolean> => {
   try {
-    const userEmail = email && email.includes('@') ? email : `${username.toLowerCase().trim()}@ermay.local`;
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
+    const userEmail = email && email.includes('@') ? email : `${cleanUser.toLowerCase()}@ermay.local`;
+
     try {
       await supabase.auth.signUp({
         email: userEmail,
-        password,
+        password: cleanPass,
         options: {
           data: {
-            username: username.toLowerCase().trim(),
+            username: cleanUser.toLowerCase(),
             role: 'Admin',
-            fullName: username.trim()
+            fullName: cleanUser
           }
         }
       });
@@ -457,9 +476,18 @@ export const registerInitialUser = async (username: string, password: string, em
       console.warn('[registerInitialUser] Supabase auth signup warning:', authErr);
     }
 
-    // Yerel belleğe de güvenli şekilde kaydet
-    await AsyncStorage.setItem('ermay_saved_username', username.trim());
-    await AsyncStorage.setItem('ermay_saved_password', password.trim());
+    // Yerel belleğe ve oturum durumuna güvenli şekilde kaydet
+    await AsyncStorage.setItem('ermay_saved_username', cleanUser);
+    await AsyncStorage.setItem('ermay_saved_password', cleanPass);
+    
+    const sessionUser = {
+      id: cleanUser,
+      email: userEmail,
+      username: cleanUser,
+      user_metadata: { role: 'Admin', fullName: cleanUser }
+    };
+    cachedSessionUser = sessionUser;
+    await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(sessionUser));
     return true;
   } catch (e) {
     console.error('[registerInitialUser error]:', e);
@@ -470,51 +498,153 @@ export const registerInitialUser = async (username: string, password: string, em
 export const loginUser = async (usernameOrEmail: string, password: string): Promise<{ success: boolean; error?: string; user?: any }> => {
   try {
     const cleanUser = usernameOrEmail.trim();
+    const cleanPass = password.trim();
     const targetEmail = cleanUser.includes('@') ? cleanUser : `${cleanUser.toLowerCase()}@ermay.local`;
 
-    // 1. Supabase Auth ile dene
+    console.log('[loginUser] Giriş denemesi başlatılıyor:', cleanUser);
+
+    // 1. Buluttaki Sistem Kullanıcı Kaydını Kontrol Et (notlar tablosu id: 999999)
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data: cloudNote } = await supabase
+        .from('notlar')
+        .select('*')
+        .eq('id', 999999)
+        .maybeSingle();
+
+      if (cloudNote && cloudNote.icerik) {
+        let usersList: any[] = [];
+        try {
+          usersList = JSON.parse(cloudNote.icerik);
+        } catch {}
+
+        if (Array.isArray(usersList) && usersList.length > 0) {
+          const matchUser = usersList.find((u: any) =>
+            (u.username && u.username.toLowerCase() === cleanUser.toLowerCase()) ||
+            (u.email && u.email.toLowerCase() === cleanUser.toLowerCase())
+          );
+
+          if (matchUser) {
+            let passwordMatched = false;
+            // Düz şifre eşleşmesi
+            if (matchUser.password === cleanPass) {
+              passwordMatched = true;
+            } else {
+              // SHA-256 Hash doğrulaması
+              const computedHash = await hashPasswordAsync(cleanPass, matchUser.password_salt || matchUser.passwordSalt);
+              if (computedHash === matchUser.password) {
+                passwordMatched = true;
+              }
+            }
+
+            if (passwordMatched) {
+              console.log('[loginUser] Bulut kullanıcı eşleşmesi başarılı:', matchUser.username);
+              const sessionUser = {
+                id: matchUser.username,
+                email: matchUser.email || targetEmail,
+                username: matchUser.username,
+                user_metadata: { role: matchUser.role || 'Admin', fullName: matchUser.username }
+              };
+              cachedSessionUser = sessionUser;
+              await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(sessionUser));
+              await AsyncStorage.setItem('ermay_saved_username', matchUser.username);
+              await AsyncStorage.setItem('ermay_saved_password', cleanPass);
+              return { success: true, user: sessionUser };
+            }
+          }
+        }
+      }
+    } catch (cloudErr) {
+      console.warn('[loginUser] Bulut kontrol uyarısı:', cloudErr);
+    }
+
+    // 2. Yerelde kurulumda / önceki girişte saklanan kullanıcıyı kontrol et
+    const localUsername = await AsyncStorage.getItem('ermay_saved_username');
+    const localPassword = await AsyncStorage.getItem('ermay_saved_password');
+    if (localUsername && localPassword) {
+      const isUserMatch = cleanUser.toLowerCase() === localUsername.toLowerCase() || targetEmail.toLowerCase() === `${localUsername.toLowerCase()}@ermay.local`;
+      if (isUserMatch && cleanPass === localPassword) {
+        console.log('[loginUser] Yerel kullanıcı doğrulandı:', localUsername);
+        const sessionUser = {
+          id: localUsername,
+          email: targetEmail,
+          username: localUsername,
+          user_metadata: { role: 'Admin', fullName: localUsername }
+        };
+        cachedSessionUser = sessionUser;
+        await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(sessionUser));
+        return { success: true, user: sessionUser };
+      }
+    }
+
+    // 3. Supabase Auth ile dene (Eğer aktifse)
+    try {
+      const { data } = await supabase.auth.signInWithPassword({
         email: targetEmail,
-        password
+        password: cleanPass
       });
 
       if (data?.user) {
+        console.log('[loginUser] Supabase Auth başarılı:', data.user.email);
+        cachedSessionUser = data.user;
+        await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(data.user));
         return { success: true, user: data.user };
       }
     } catch {}
 
-    // 2. Yerelde kurulumda belirlenen kullanıcı adı ve şifreyi kontrol et
-    const localUsername = await AsyncStorage.getItem('ermay_saved_username');
-    const localPassword = await AsyncStorage.getItem('ermay_saved_password');
-    if (localUsername && localPassword) {
-      if (
-        (cleanUser.toLowerCase() === localUsername.toLowerCase() || targetEmail.toLowerCase() === `${localUsername.toLowerCase()}@ermay.local`) &&
-        password === localPassword
-      ) {
-        return {
-          success: true,
-          user: { id: localUsername, email: `${localUsername}@ermay.local`, user_metadata: { role: 'Admin', fullName: localUsername } }
-        };
-      }
+    // 4. İLK AÇILIŞ / OTOMATİK İLK YÖNETİCİ EŞLEŞMESİ (Auto-Provisioning)
+    // Eğer telefonda henüz hiçbir yerel kullanıcı kaydedilmemişse, girilen bilgileri ilk yönetici olarak kabul et
+    if (!localUsername) {
+      console.log('[loginUser] İlk açılış tespit edildi, kullanıcı ilk yönetici olarak kaydediliyor:', cleanUser);
+      await AsyncStorage.setItem('ermay_saved_username', cleanUser);
+      await AsyncStorage.setItem('ermay_saved_password', cleanPass);
+      const sessionUser = {
+        id: cleanUser,
+        email: targetEmail,
+        username: cleanUser,
+        user_metadata: { role: 'Admin', fullName: cleanUser }
+      };
+      cachedSessionUser = sessionUser;
+      await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(sessionUser));
+      return { success: true, user: sessionUser };
     }
 
     return { success: false, error: 'Geçersiz kullanıcı adı veya şifre' };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    console.error('[loginUser error]:', err);
+    return { success: false, error: err.message || 'Giriş yapılamadı.' };
   }
 };
 
 export const logoutUser = async () => {
   try {
+    cachedSessionUser = null;
+    await AsyncStorage.removeItem('ermay_active_session_user');
     await supabase.auth.signOut();
   } catch (e) {}
 };
 
 export const getLoggedUser = async (): Promise<any | null> => {
   try {
+    // 1. Önce bellekteki aktif oturuma bak
+    if (cachedSessionUser) return cachedSessionUser;
+
+    // 2. AsyncStorage'da saklanan aktif oturuma bak
+    const stored = await AsyncStorage.getItem('ermay_active_session_user');
+    if (stored) {
+      try {
+        cachedSessionUser = JSON.parse(stored);
+        return cachedSessionUser;
+      } catch {}
+    }
+
+    // 3. Supabase Auth oturumuna bak
     const { data } = await supabase.auth.getUser();
-    return data?.user || null;
+    if (data?.user) {
+      cachedSessionUser = data.user;
+      return data.user;
+    }
+
+    return null;
   } catch (e) {
     return null;
   }

@@ -31,7 +31,7 @@ export default function LoginScreen({ onLoginSuccess, mode: initialMode = 'confi
   // User Mode States
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   // Year Selection Mode States
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
@@ -209,13 +209,11 @@ export default function LoginScreen({ onLoginSuccess, mode: initialMode = 'confi
       if (res.success) {
         if (rememberMe) {
           await AsyncStorage.setItem('ermay_remember_me', 'true');
-          await AsyncStorage.setItem('ermay_saved_username', usernameOrEmail.trim());
-          await AsyncStorage.setItem('ermay_saved_password', password);
         } else {
           await AsyncStorage.removeItem('ermay_remember_me');
-          await AsyncStorage.removeItem('ermay_saved_username');
-          await AsyncStorage.removeItem('ermay_saved_password');
         }
+        await AsyncStorage.setItem('ermay_saved_username', usernameOrEmail.trim());
+        await AsyncStorage.setItem('ermay_saved_password', password);
 
         console.log('[LOGIN] Başarılı, doğrudan uygulamaya geçiliyor...');
         setLoggedInUser(res.user);

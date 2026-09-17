@@ -451,9 +451,104 @@ namespace ErmayMuhasebe.Services
         public async Task<List<Senet>> PullSenetlerAsync() => new();
         public async Task<List<MusteriTakipKlasor>> PullMusteriTakipKlasorlerAsync() => new();
         public async Task<List<MusteriTakipDetay>> PullMusteriTakipDetaylarAsync() => new();
-        public async Task<List<User>> PullUsersAsync() => new();
-        public async Task SyncUserAsync(User user) => await Task.CompletedTask;
-        public async Task DeleteUserFromCloudAsync(int userId, string? username = null) => await Task.CompletedTask;
+        public async Task<List<User>> PullUsersAsync()
+        {
+            if (!IsConnected) return new();
+            try
+            {
+                // 1. notlar tablosundaki id: 999999 __SYS_USERS__ kaydından oku
+                using var req = CreateRequest(HttpMethod.Get, "notlar?id=eq.999999&select=icerik");
+                using var res = await _http.SendAsync(req);
+                if (res.IsSuccessStatusCode)
+                {
+                    var json = await res.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                    {
+                        var first = doc.RootElement[0];
+                        if (first.TryGetProperty("icerik", out var icerikElem) && icerikElem.ValueKind == JsonValueKind.String)
+                        {
+                            var userJson = icerikElem.GetString();
+                            if (!string.IsNullOrEmpty(userJson))
+                            {
+                                return JsonSerializer.Deserialize<List<User>>(userJson, _jsonOpts) ?? new();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PullUsersAsync Error] {ex.Message}");
+            }
+            return new();
+        }
+
+        public async Task SyncUserAsync(User user)
+        {
+            if (!IsConnected || user == null) return;
+            try
+            {
+                var currentUsers = await PullUsersAsync();
+                var existing = currentUsers.FirstOrDefault(u => (u.Username ?? "").Equals(user.Username ?? "", StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    existing.Password = user.Password;
+                    existing.PasswordSalt = user.PasswordSalt;
+                    existing.Role = user.Role;
+                    existing.Email = user.Email;
+                    existing.TenantId = user.TenantId;
+                }
+                else
+                {
+                    currentUsers.Add(user);
+                }
+
+                var usersJson = JsonSerializer.Serialize(currentUsers, _jsonOpts);
+                using var postReq = CreateRequest(HttpMethod.Post, "notlar");
+                postReq.Headers.Add("Prefer", "resolution=merge-duplicates");
+                var payload = new
+                {
+                    id = 999999,
+                    baslik = "__SYS_USERS__",
+                    icerik = usersJson,
+                    renk = "#0061FF"
+                };
+                postReq.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                await _http.SendAsync(postReq);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SyncUserAsync Error] {ex.Message}");
+            }
+        }
+
+        public async Task DeleteUserFromCloudAsync(int userId, string? username = null)
+        {
+            if (!IsConnected) return;
+            try
+            {
+                var currentUsers = await PullUsersAsync();
+                currentUsers.RemoveAll(u => u.Id == userId || (!string.IsNullOrEmpty(username) && u.Username?.Equals(username, StringComparison.OrdinalIgnoreCase) == true));
+
+                var usersJson = JsonSerializer.Serialize(currentUsers, _jsonOpts);
+                using var postReq = CreateRequest(HttpMethod.Post, "notlar");
+                postReq.Headers.Add("Prefer", "resolution=merge-duplicates");
+                var payload = new
+                {
+                    id = 999999,
+                    baslik = "__SYS_USERS__",
+                    icerik = usersJson,
+                    renk = "#0061FF"
+                };
+                postReq.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                await _http.SendAsync(postReq);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DeleteUserFromCloudAsync Error] {ex.Message}");
+            }
+        }
 
         public async Task SyncCekAsync(Cek cek) => await Task.CompletedTask;
         public async Task SyncSenetAsync(Senet senet) => await Task.CompletedTask;
