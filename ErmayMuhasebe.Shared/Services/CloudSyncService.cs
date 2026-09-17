@@ -12,12 +12,12 @@ namespace ErmayMuhasebe.Services
 {
     public class CloudConfig
     {
-        public string BaseUrl { get; set; } = "https://fqgbdymffknglqeqoogt.supabase.co";
-        public string AuthSecret { get; set; } = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg";
+        public string BaseUrl { get; set; } = "";
+        public string AuthSecret { get; set; } = "";
         public string GoogleApiKey { get; set; } = "";
         public string GoogleClientId { get; set; } = "";
         public string GoogleClientSecret { get; set; } = "";
-        public bool IsActive { get; set; } = true;
+        public bool IsActive { get; set; } = false;
         public bool IsAutoSyncEnabled { get; set; } = true;
     }
 
@@ -83,22 +83,21 @@ namespace ErmayMuhasebe.Services
                     var loaded = JsonSerializer.Deserialize<CloudConfig>(json);
                     if (loaded != null && !string.IsNullOrEmpty(loaded.BaseUrl) && !string.IsNullOrEmpty(loaded.AuthSecret))
                     {
-                        // Check if legacy Firebase URL is stored or empty
+                        // Check if legacy Firebase URL is stored
                         if (loaded.BaseUrl.Contains("firebaseio.com") || !loaded.BaseUrl.Contains("supabase.co"))
                         {
                             _config = new CloudConfig();
-                            SaveConfig(_config.BaseUrl, _config.AuthSecret);
                         }
                         else
                         {
                             _config = loaded;
+                            _config.IsActive = true;
                         }
                     }
                 }
                 else
                 {
                     _config = new CloudConfig();
-                    SaveConfig(_config.BaseUrl, _config.AuthSecret);
                 }
             }
             catch (Exception ex)
@@ -330,23 +329,28 @@ namespace ErmayMuhasebe.Services
         // ==========================================
         private static Dictionary<string, object?> MapCariToPayload(CariKart c) => new()
         {
-            ["id"] = c.Id,
+            ["id"] = c.Id.ToString(),
             ["cari_kodu"] = c.CariKod ?? "",
+            ["kod"] = c.CariKod ?? "",
             ["unvan"] = c.Unvan ?? "",
             ["vergi_dairesi"] = c.VergiDairesi,
             ["vergi_no"] = c.VergiNo,
             ["tc_kimlik_no"] = c.TCNo,
             ["adres"] = c.Adres,
             ["sehir"] = c.Il,
+            ["il"] = c.Il,
             ["ilce"] = c.Ilce,
             ["telefon"] = c.Telefon,
             ["telefon2"] = c.CepTelefon,
             ["yetkili_kisi"] = c.Yetkili,
             ["email"] = c.Email,
+            ["eposta"] = c.Email,
             ["web_sitesi"] = c.WebAdresi,
             ["bakiye"] = c.Bakiye,
             ["borc_tutari"] = c.Borc,
             ["alacak_tutari"] = c.Alacak,
+            ["borc"] = c.Borc,
+            ["alacak"] = c.Alacak,
             ["kredi_limiti"] = c.RiskLimiti,
             ["vade_gun"] = c.VadeGunu,
             ["grup"] = c.Grup,
@@ -386,20 +390,23 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapStokToPayload(StokKart s) => new()
         {
-            ["id"] = s.Id,
+            ["id"] = s.Id.ToString(),
             ["stok_kodu"] = s.StokKodu ?? "",
             ["stok_adi"] = s.StokAdi ?? "",
             ["barkod"] = s.Barkod,
             ["grup_adi"] = s.Kategori ?? s.Grup,
+            ["grup"] = s.Kategori ?? s.Grup,
             ["birim"] = s.Birim ?? "Adet",
             ["alis_fiyati"] = s.AlisFiyati,
             ["satis_fiyati"] = s.SatisFiyati,
             ["kdv_orani"] = s.KDV,
             ["mevcut_miktar"] = (decimal)s.Miktar,
+            ["miktar"] = (decimal)s.Miktar,
             ["kritik_seviye"] = (decimal)s.MinSeviye,
+            ["kritik_stok"] = (decimal)s.MinSeviye,
             ["aciklama"] = s.Aciklama,
             ["is_active"] = true,
-            ["is_deleted"] = false
+            ["is_deleted"] = s.IsDeleted
         };
 
         private static StokKart MapPayloadToStok(JsonElement el)
@@ -418,6 +425,7 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("mevcut_miktar", out var mm)) s.Miktar = ParseDouble(mm);
             else if (el.TryGetProperty("miktar", out var mq)) s.Miktar = ParseDouble(mq);
             if (el.TryGetProperty("kritik_seviye", out var ks)) s.MinSeviye = ParseDouble(ks);
+            else if (el.TryGetProperty("kritik_stok", out var kst)) s.MinSeviye = ParseDouble(kst);
             if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) s.Aciklama = ac.GetString();
             if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) s.IsDeleted = true;
             return s;
@@ -425,10 +433,10 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapFaturaToPayload(Fatura f) => new()
         {
-            ["id"] = f.Id,
+            ["id"] = f.Id.ToString(),
             ["fatura_no"] = f.FaturaNo ?? "",
             ["fatura_turu"] = string.IsNullOrWhiteSpace(f.Tur) ? "Satis" : f.Tur,
-            ["cari_id"] = f.CariId,
+            ["cari_id"] = f.CariId.ToString(),
             ["cari_unvan"] = f.CariUnvan ?? "",
             ["tarih"] = f.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["vade_tarihi"] = f.VadeTarihi.ToString("yyyy-MM-ddTHH:mm:ssZ"),
@@ -436,10 +444,12 @@ namespace ErmayMuhasebe.Services
             ["kdv_toplam"] = f.KdvToplam,
             ["iskonto_toplam"] = 0m,
             ["genel_toplam"] = f.GenelToplam,
+            ["kalan_tutar"] = f.Kalan,
+            ["durum"] = f.Odenen >= f.GenelToplam && f.GenelToplam > 0 ? "Ödendi" : (f.Odenen > 0 ? "Kısmi" : "Ödenmedi"),
             ["aciklama"] = f.Aciklama,
             ["is_kapali"] = f.Odenen >= f.GenelToplam && f.GenelToplam > 0,
-            ["kasa_id"] = f.KasaId,
-            ["banka_id"] = f.BankaId,
+            ["kasa_id"] = f.KasaId?.ToString(),
+            ["banka_id"] = f.BankaId?.ToString(),
             ["is_deleted"] = f.IsDeleted
         };
 
@@ -466,9 +476,9 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapFaturaDetayToPayload(FaturaDetay d) => new()
         {
-            ["id"] = d.Id,
-            ["fatura_id"] = d.FaturaId,
-            ["stok_id"] = d.StokId,
+            ["id"] = d.Id.ToString(),
+            ["fatura_id"] = d.FaturaId.ToString(),
+            ["stok_id"] = d.StokId.ToString(),
             ["stok_kodu"] = d.StokKodu ?? "",
             ["stok_adi"] = d.StokAdi ?? "",
             ["birim"] = d.Birim ?? "Adet",
@@ -502,16 +512,18 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapCariHareketToPayload(CariHareket h) => new()
         {
-            ["id"] = h.Id,
-            ["cari_id"] = h.CariId,
+            ["id"] = h.Id.ToString(),
+            ["cari_id"] = h.CariId.ToString(),
             ["tarih"] = h.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["islem_turu"] = h.IslemTuru ?? "",
             ["evrak_no"] = h.EvrakNo ?? "",
             ["aciklama"] = h.Aciklama ?? "",
             ["borc"] = h.Borc,
             ["alacak"] = h.Alacak,
-            ["fatura_id"] = h.FaturaId,
-            ["vade_tarihi"] = h.Vade?.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            ["bakiye"] = h.KalanBakiye,
+            ["fatura_id"] = h.FaturaId?.ToString(),
+            ["vade_tarihi"] = h.Vade?.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["is_deleted"] = false
         };
 
         private static CariHareket MapPayloadToCariHareket(JsonElement el)
@@ -536,16 +548,18 @@ namespace ErmayMuhasebe.Services
             decimal toplam = miktar * sh.Fiyat;
             return new()
             {
-                ["id"] = sh.Id,
-                ["stok_id"] = sh.StokId,
+                ["id"] = sh.Id.ToString(),
+                ["stok_id"] = sh.StokId.ToString(),
                 ["tarih"] = sh.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 ["hareket_turu"] = sh.IslemTuru ?? (sh.Giren > 0 ? "GİRİŞ" : "ÇIKIŞ"),
+                ["hareket_tipi"] = sh.IslemTuru ?? (sh.Giren > 0 ? "GİRİŞ" : "ÇIKIŞ"),
                 ["evrak_no"] = sh.EvrakNo ?? "",
                 ["miktar"] = miktar,
                 ["birim_fiyat"] = sh.Fiyat,
                 ["toplam_tutar"] = toplam,
-                ["fatura_id"] = sh.FaturaId,
-                ["aciklama"] = sh.Aciklama ?? ""
+                ["fatura_id"] = sh.FaturaId?.ToString(),
+                ["aciklama"] = sh.Aciklama ?? "",
+                ["is_deleted"] = false
             };
         }
 
@@ -556,6 +570,7 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("stok_id", out var si)) sh.StokId = ParseInt(si);
             if (el.TryGetProperty("tarih", out var trh) && trh.ValueKind == JsonValueKind.String && DateTime.TryParse(trh.GetString(), out var t)) sh.Tarih = t;
             if (el.TryGetProperty("hareket_turu", out var ht) && ht.ValueKind == JsonValueKind.String) sh.IslemTuru = ht.GetString();
+            else if (el.TryGetProperty("hareket_tipi", out var hti) && hti.ValueKind == JsonValueKind.String) sh.IslemTuru = hti.GetString();
             if (el.TryGetProperty("evrak_no", out var en) && en.ValueKind == JsonValueKind.String) sh.EvrakNo = en.GetString();
             if (el.TryGetProperty("miktar", out var m))
             {
@@ -571,13 +586,13 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapBankaToPayload(BankaKart b) => new()
         {
-            ["id"] = b.Id,
+            ["id"] = b.Id.ToString(),
             ["banka_adi"] = b.BankaAdi ?? "",
             ["sube_adi"] = b.SubeAdi ?? "",
             ["hesap_no"] = b.HesapNo ?? "",
             ["iban"] = b.IBAN ?? "",
             ["bakiye"] = b.Bakiye,
-            ["para_birimi"] = b.DovizTuru ?? "TL",
+            ["para_birimi"] = b.DovizTuru ?? "TRY",
             ["is_active"] = true,
             ["is_deleted"] = b.IsDeleted
         };
@@ -598,15 +613,18 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapBankaHareketToPayload(BankaHareket bh) => new()
         {
-            ["id"] = bh.Id,
-            ["banka_id"] = bh.BankaId,
+            ["id"] = bh.Id.ToString(),
+            ["banka_id"] = bh.BankaId.ToString(),
             ["tarih"] = bh.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["hareket_turu"] = bh.IslemTuru ?? "",
+            ["islem_turu"] = bh.IslemTuru ?? "",
             ["evrak_no"] = bh.EvrakNo ?? "",
             ["aciklama"] = bh.Aciklama ?? "",
             ["yatan"] = bh.Giren,
             ["ceken"] = bh.Cikan,
-            ["cari_id"] = bh.CariId
+            ["tutar"] = bh.Giren > 0 ? bh.Giren : bh.Cikan,
+            ["cari_id"] = bh.CariId?.ToString(),
+            ["is_deleted"] = false
         };
 
         private static BankaHareket MapPayloadToBankaHareket(JsonElement el)
@@ -616,6 +634,7 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("banka_id", out var bi)) bh.BankaId = ParseInt(bi);
             if (el.TryGetProperty("tarih", out var trh) && trh.ValueKind == JsonValueKind.String && DateTime.TryParse(trh.GetString(), out var t)) bh.Tarih = t;
             if (el.TryGetProperty("hareket_turu", out var ht) && ht.ValueKind == JsonValueKind.String) bh.IslemTuru = ht.GetString();
+            else if (el.TryGetProperty("islem_turu", out var it) && it.ValueKind == JsonValueKind.String) bh.IslemTuru = it.GetString();
             if (el.TryGetProperty("evrak_no", out var en) && en.ValueKind == JsonValueKind.String) bh.EvrakNo = en.GetString();
             if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) bh.Aciklama = ac.GetString();
             if (el.TryGetProperty("yatan", out var y)) bh.Giren = ParseDecimal(y);
@@ -626,15 +645,18 @@ namespace ErmayMuhasebe.Services
 
         private static Dictionary<string, object?> MapKasaHareketToPayload(KasaHareket kh) => new()
         {
-            ["id"] = kh.Id,
-            ["kasa_id"] = kh.KasaId,
+            ["id"] = kh.Id.ToString(),
+            ["kasa_id"] = kh.KasaId.ToString(),
             ["tarih"] = kh.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["hareket_turu"] = kh.IslemTuru ?? "",
+            ["islem_turu"] = kh.IslemTuru ?? "",
             ["evrak_no"] = kh.EvrakNo ?? "",
             ["aciklama"] = kh.Aciklama ?? "",
             ["gelir"] = kh.Giren,
             ["gider"] = kh.Cikan,
-            ["cari_id"] = kh.CariId
+            ["tutar"] = kh.Giren > 0 ? kh.Giren : kh.Cikan,
+            ["cari_id"] = kh.CariId?.ToString(),
+            ["is_deleted"] = false
         };
 
         private static KasaHareket MapPayloadToKasaHareket(JsonElement el)
@@ -644,6 +666,7 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("kasa_id", out var ki)) kh.KasaId = ParseInt(ki);
             if (el.TryGetProperty("tarih", out var trh) && trh.ValueKind == JsonValueKind.String && DateTime.TryParse(trh.GetString(), out var t)) kh.Tarih = t;
             if (el.TryGetProperty("hareket_turu", out var ht) && ht.ValueKind == JsonValueKind.String) kh.IslemTuru = ht.GetString();
+            else if (el.TryGetProperty("islem_turu", out var it) && it.ValueKind == JsonValueKind.String) kh.IslemTuru = it.GetString();
             if (el.TryGetProperty("evrak_no", out var en) && en.ValueKind == JsonValueKind.String) kh.EvrakNo = en.GetString();
             if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) kh.Aciklama = ac.GetString();
             if (el.TryGetProperty("gelir", out var g)) kh.Giren = ParseDecimal(g);
@@ -1053,17 +1076,28 @@ namespace ErmayMuhasebe.Services
         // ==========================================
         public async Task SyncFirmaProfiliAsync(FirmaProfili profil)
         {
-            var payload = new
+            var payload = new Dictionary<string, object?>
             {
-                id = 1,
-                unvan = profil.FirmaAdi ?? "",
-                vergi_dairesi = profil.VergiDairesi,
-                vergi_no = profil.VergiNo,
-                adres = profil.Adres,
-                telefon = profil.Telefon,
-                email = profil.Eposta,
-                web_sitesi = profil.WebSitesi,
-                logo_base64 = profil.LogoBase64
+                ["id"] = "1",
+                ["firma_adi"] = profil.FirmaAdi ?? "",
+                ["unvan"] = profil.FirmaAdi ?? "",
+                ["vergi_dairesi"] = profil.VergiDairesi,
+                ["vergi_no"] = profil.VergiNo,
+                ["adres"] = profil.Adres,
+                ["telefon"] = profil.Telefon,
+                ["email"] = profil.Eposta,
+                ["eposta"] = profil.Eposta,
+                ["web"] = profil.WebSitesi,
+                ["web_sitesi"] = profil.WebSitesi,
+                ["logo_base64"] = profil.LogoBase64,
+                ["cloud_pdf_api_url"] = profil.CloudPdfApiUrl,
+                ["cloud_pdf_api_key"] = profil.CloudPdfApiKey,
+                ["smtp_host"] = profil.SmtpHost,
+                ["smtp_port"] = profil.SmtpPort,
+                ["smtp_user"] = profil.SmtpUser,
+                ["smtp_pass"] = profil.SmtpPass,
+                ["smtp_ssl"] = profil.SmtpSsl,
+                ["factory_reset_password"] = profil.FactoryResetPassword
             };
             await UpsertPayloadAsync("firma_profili", payload);
         }
@@ -1074,13 +1108,16 @@ namespace ErmayMuhasebe.Services
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0) return null;
             var el = doc.RootElement[0];
             var p = new FirmaProfili { Id = 1 };
-            if (el.TryGetProperty("unvan", out var u) && u.ValueKind == JsonValueKind.String) p.FirmaAdi = u.GetString();
+            if (el.TryGetProperty("firma_adi", out var fa) && fa.ValueKind == JsonValueKind.String) p.FirmaAdi = fa.GetString();
+            else if (el.TryGetProperty("unvan", out var u) && u.ValueKind == JsonValueKind.String) p.FirmaAdi = u.GetString();
             if (el.TryGetProperty("vergi_dairesi", out var vd) && vd.ValueKind == JsonValueKind.String) p.VergiDairesi = vd.GetString();
             if (el.TryGetProperty("vergi_no", out var vn) && vn.ValueKind == JsonValueKind.String) p.VergiNo = vn.GetString();
             if (el.TryGetProperty("adres", out var adr) && adr.ValueKind == JsonValueKind.String) p.Adres = adr.GetString();
             if (el.TryGetProperty("telefon", out var tel) && tel.ValueKind == JsonValueKind.String) p.Telefon = tel.GetString();
             if (el.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String) p.Eposta = em.GetString();
+            else if (el.TryGetProperty("eposta", out var ep) && ep.ValueKind == JsonValueKind.String) p.Eposta = ep.GetString();
             if (el.TryGetProperty("web_sitesi", out var ws) && ws.ValueKind == JsonValueKind.String) p.WebSitesi = ws.GetString();
+            else if (el.TryGetProperty("web", out var w) && w.ValueKind == JsonValueKind.String) p.WebSitesi = w.GetString();
             if (el.TryGetProperty("logo_base64", out var lb) && lb.ValueKind == JsonValueKind.String) p.LogoBase64 = lb.GetString();
             return p;
         }
@@ -1089,12 +1126,17 @@ namespace ErmayMuhasebe.Services
 
         public async Task SyncNoteAsync(Note note)
         {
-            var payload = new
+            var payload = new Dictionary<string, object?>
             {
-                id = note.Id,
-                baslik = note.Title ?? "",
-                icerik = note.Content ?? "",
-                renk = note.Color ?? "#0061FF"
+                ["id"] = note.Id.ToString(),
+                ["title"] = note.Title ?? "",
+                ["baslik"] = note.Title ?? "",
+                ["content"] = note.Content ?? "",
+                ["icerik"] = note.Content ?? "",
+                ["color"] = note.Color ?? "#0061FF",
+                ["renk"] = note.Color ?? "#0061FF",
+                ["is_pinned"] = note.IsPinned,
+                ["is_deleted"] = note.IsDeleted
             };
             await UpsertPayloadAsync("notlar", payload);
         }
@@ -1110,20 +1152,95 @@ namespace ErmayMuhasebe.Services
             {
                 var n = new Note();
                 if (el.TryGetProperty("id", out var id)) n.Id = ParseInt(id);
-                if (el.TryGetProperty("baslik", out var b) && b.ValueKind == JsonValueKind.String) n.Title = b.GetString();
-                if (el.TryGetProperty("icerik", out var i) && i.ValueKind == JsonValueKind.String) n.Content = i.GetString();
-                if (el.TryGetProperty("renk", out var r) && r.ValueKind == JsonValueKind.String) n.Color = r.GetString();
+                if (el.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String) n.Title = t.GetString();
+                else if (el.TryGetProperty("baslik", out var b) && b.ValueKind == JsonValueKind.String) n.Title = b.GetString();
+                if (el.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String) n.Content = c.GetString();
+                else if (el.TryGetProperty("icerik", out var i) && i.ValueKind == JsonValueKind.String) n.Content = i.GetString();
+                if (el.TryGetProperty("color", out var cl) && cl.ValueKind == JsonValueKind.String) n.Color = cl.GetString();
+                else if (el.TryGetProperty("renk", out var r) && r.ValueKind == JsonValueKind.String) n.Color = r.GetString();
                 list.Add(n);
             }
             return list;
         }
 
         // ==========================================
-        // GENERIC STUBS FOR OPTIONAL MODULES
+        // KULLANICI YÖNETİMİ & SUPABASE AUTH
         // ==========================================
-        public async Task SyncGenericAsync<T>(string resourceName, T data, int id) => await Task.CompletedTask;
-        public async Task DeleteGenericAsync(string resourceName, int id) => await Task.CompletedTask;
-        public async Task<List<T>> GlobalGetAllAsync<T>(string resourceName) => new();
+        public async Task<bool> RegisterSupabaseAuthUserAsync(string username, string password, string? email = null)
+        {
+            if (!IsConnected) return false;
+            try
+            {
+                string cleanUser = username.Trim();
+                string cleanPass = password.Trim();
+                string userEmail = !string.IsNullOrEmpty(email) && email.Contains("@") ? email.Trim() : $"{cleanUser.ToLower()}@ermay.local";
+
+                // 1. Supabase Auth Signup API
+                try
+                {
+                    string cleanBase = _config.BaseUrl.TrimEnd('/');
+                    string authUrl = $"{cleanBase}/auth/v1/signup";
+                    using var authReq = new HttpRequestMessage(HttpMethod.Post, authUrl);
+                    authReq.Headers.Add("apikey", _config.AuthSecret);
+                    authReq.Headers.Add("Authorization", $"Bearer {_config.AuthSecret}");
+
+                    var authPayload = new
+                    {
+                        email = userEmail,
+                        password = cleanPass,
+                        data = new
+                        {
+                            username = cleanUser.ToLower(),
+                            role = "Admin",
+                            full_name = cleanUser
+                        }
+                    };
+                    authReq.Content = new StringContent(JsonSerializer.Serialize(authPayload), Encoding.UTF8, "application/json");
+                    using var authRes = await _http.SendAsync(authReq);
+                }
+                catch (Exception authEx)
+                {
+                    Console.WriteLine($"[RegisterSupabaseAuthUser auth warning]: {authEx.Message}");
+                }
+
+                // 2. public.kullanicilar tablosuna ekle
+                var salt = AuthService.GenerateSalt();
+                var hash = AuthService.HashPassword(cleanPass, salt);
+                var userRow = new Dictionary<string, object?>
+                {
+                    ["id"] = cleanUser.ToLower(),
+                    ["username"] = cleanUser.ToLower(),
+                    ["kullanici_adi"] = cleanUser.ToLower(),
+                    ["password_hash"] = hash,
+                    ["sifre"] = cleanPass,
+                    ["password_salt"] = salt,
+                    ["email"] = userEmail,
+                    ["role"] = "Admin",
+                    ["rol"] = "Admin",
+                    ["is_active"] = true,
+                    ["aktif_mi"] = true
+                };
+                await UpsertPayloadAsync("kullanicilar", userRow);
+
+                // 3. User modelini oluşturup SyncUserAsync çağır
+                var u = new User
+                {
+                    Username = cleanUser.ToLower(),
+                    Password = hash,
+                    PasswordSalt = salt,
+                    Email = userEmail,
+                    Role = "Admin"
+                };
+                await SyncUserAsync(u);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RegisterSupabaseAuthUser error]: {ex.Message}");
+                return false;
+            }
+        }
 
         public async Task<List<KrediKartiIslem>> PullKrediKartlariAsync() => new();
         public async Task<List<EftIslem>> PullEftIslemleriAsync() => new();
@@ -1131,13 +1248,33 @@ namespace ErmayMuhasebe.Services
         public async Task<List<Senet>> PullSenetlerAsync() => new();
         public async Task<List<MusteriTakipKlasor>> PullMusteriTakipKlasorlerAsync() => new();
         public async Task<List<MusteriTakipDetay>> PullMusteriTakipDetaylarAsync() => new();
+        public async Task SyncGenericAsync<T>(string table, T item, object? id = null) => await Task.CompletedTask;
 
         public async Task<List<User>> PullUsersAsync()
         {
             if (!IsConnected) return new();
             try
             {
-                using var req = CreateRequest(HttpMethod.Get, "notlar?id=eq.999999&select=icerik");
+                // 1. First try pulling from public.kullanicilar table
+                using var userDoc = await GetJsonAsync("kullanicilar");
+                if (userDoc != null && userDoc.RootElement.ValueKind == JsonValueKind.Array && userDoc.RootElement.GetArrayLength() > 0)
+                {
+                    var list = new List<User>();
+                    foreach (var el in userDoc.RootElement.EnumerateArray())
+                    {
+                        var u = new User();
+                        if (el.TryGetProperty("username", out var un) && un.ValueKind == JsonValueKind.String) u.Username = un.GetString()?.ToLower();
+                        if (el.TryGetProperty("password_hash", out var ph) && ph.ValueKind == JsonValueKind.String) u.Password = ph.GetString();
+                        if (el.TryGetProperty("password_salt", out var ps) && ps.ValueKind == JsonValueKind.String) u.PasswordSalt = ps.GetString();
+                        if (el.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String) u.Email = em.GetString();
+                        if (el.TryGetProperty("role", out var rl) && rl.ValueKind == JsonValueKind.String) u.Role = rl.GetString();
+                        if (!string.IsNullOrEmpty(u.Username)) list.Add(u);
+                    }
+                    if (list.Count > 0) return list;
+                }
+
+                // 2. Fallback to notlar table id=999999
+                using var req = CreateRequest(HttpMethod.Get, "notlar?id=eq.999999&select=*");
                 using var res = await _http.SendAsync(req);
                 if (res.IsSuccessStatusCode)
                 {
@@ -1146,13 +1283,15 @@ namespace ErmayMuhasebe.Services
                     if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
                     {
                         var first = doc.RootElement[0];
+                        string? userJson = null;
                         if (first.TryGetProperty("icerik", out var icerikElem) && icerikElem.ValueKind == JsonValueKind.String)
+                            userJson = icerikElem.GetString();
+                        else if (first.TryGetProperty("content", out var contentElem) && contentElem.ValueKind == JsonValueKind.String)
+                            userJson = contentElem.GetString();
+
+                        if (!string.IsNullOrEmpty(userJson))
                         {
-                            var userJson = icerikElem.GetString();
-                            if (!string.IsNullOrEmpty(userJson))
-                            {
-                                return JsonSerializer.Deserialize<List<User>>(userJson, _jsonOpts) ?? new();
-                            }
+                            return JsonSerializer.Deserialize<List<User>>(userJson, _jsonOpts) ?? new();
                         }
                     }
                 }
@@ -1169,6 +1308,20 @@ namespace ErmayMuhasebe.Services
             if (!IsConnected || user == null) return;
             try
             {
+                // 1. Save to public.kullanicilar table
+                var userRow = new Dictionary<string, object?>
+                {
+                    ["id"] = (user.Username ?? "").ToLower(),
+                    ["username"] = (user.Username ?? "").ToLower(),
+                    ["password_hash"] = user.Password ?? "",
+                    ["password_salt"] = user.PasswordSalt ?? "",
+                    ["email"] = user.Email,
+                    ["role"] = user.Role ?? "Admin",
+                    ["is_active"] = true
+                };
+                await UpsertPayloadAsync("kullanicilar", userRow);
+
+                // 2. Fallback / mirror to notlar
                 var currentUsers = await PullUsersAsync();
                 var existing = currentUsers.FirstOrDefault(u => (u.Username ?? "").Equals(user.Username ?? "", StringComparison.OrdinalIgnoreCase));
                 if (existing != null)
@@ -1185,17 +1338,17 @@ namespace ErmayMuhasebe.Services
                 }
 
                 var usersJson = JsonSerializer.Serialize(currentUsers, _jsonOpts);
-                using var postReq = CreateRequest(HttpMethod.Post, "notlar");
-                postReq.Headers.Add("Prefer", "resolution=merge-duplicates");
-                var payload = new
+                var payload = new Dictionary<string, object?>
                 {
-                    id = 999999,
-                    baslik = "__SYS_USERS__",
-                    icerik = usersJson,
-                    renk = "#0061FF"
+                    ["id"] = "999999",
+                    ["title"] = "__SYS_USERS__",
+                    ["baslik"] = "__SYS_USERS__",
+                    ["content"] = usersJson,
+                    ["icerik"] = usersJson,
+                    ["color"] = "#0061FF",
+                    ["renk"] = "#0061FF"
                 };
-                postReq.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                await _http.SendAsync(postReq);
+                await UpsertPayloadAsync("notlar", payload);
             }
             catch (Exception ex)
             {
@@ -1208,21 +1361,26 @@ namespace ErmayMuhasebe.Services
             if (!IsConnected) return;
             try
             {
+                if (!string.IsNullOrEmpty(username))
+                {
+                    await DeleteFilteredAsync("kullanicilar", $"username=eq.{Uri.EscapeDataString(username.ToLower())}");
+                }
+
                 var currentUsers = await PullUsersAsync();
                 currentUsers.RemoveAll(u => u.Id == userId || (!string.IsNullOrEmpty(username) && u.Username?.Equals(username, StringComparison.OrdinalIgnoreCase) == true));
 
                 var usersJson = JsonSerializer.Serialize(currentUsers, _jsonOpts);
-                using var postReq = CreateRequest(HttpMethod.Post, "notlar");
-                postReq.Headers.Add("Prefer", "resolution=merge-duplicates");
-                var payload = new
+                var payload = new Dictionary<string, object?>
                 {
-                    id = 999999,
-                    baslik = "__SYS_USERS__",
-                    icerik = usersJson,
-                    renk = "#0061FF"
+                    ["id"] = "999999",
+                    ["title"] = "__SYS_USERS__",
+                    ["baslik"] = "__SYS_USERS__",
+                    ["content"] = usersJson,
+                    ["icerik"] = usersJson,
+                    ["color"] = "#0061FF",
+                    ["renk"] = "#0061FF"
                 };
-                postReq.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                await _http.SendAsync(postReq);
+                await UpsertPayloadAsync("notlar", payload);
             }
             catch (Exception ex)
             {

@@ -794,6 +794,15 @@ namespace ErmayMuhasebe.Services
                                         CreatedAt = DateTime.Now
                                     });
                                     added = true;
+
+                                    var finalUName = uName;
+                                    var finalUPass = uPass;
+                                    var finalUEmail = uEmail;
+                                    _ = Task.Run(async () =>
+                                    {
+                                        try { await _sync.RegisterSupabaseAuthUserAsync(finalUName, finalUPass, finalUEmail); }
+                                        catch { }
+                                    });
                                 }
                             }
                             if (added) return;
@@ -4793,7 +4802,21 @@ namespace ErmayMuhasebe.Services
                     }
                     else
                     {
-                        if (c.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
+                        if (existing.IsDeleted && !c.IsDeleted)
+                        {
+                            // Yerelde silinmiş kayıt buluttan canlandırılmaz! Aksine bulutta da silinmiş olarak işaretlenir.
+                            _ = Task.Run(async () => {
+                                try { await _sync.SyncCariAsync(existing); } catch { }
+                            });
+                        }
+                        else if (c.IsDeleted) 
+                        { 
+                            if (!existing.IsDeleted)
+                            {
+                                await _db.DeleteAsync(existing); 
+                                hasAnyChanges = true; 
+                            }
+                        }
                         else if (existing.UpdatedAt < c.UpdatedAt || existing.Version < c.Version || existing.Borc != c.Borc || existing.Alacak != c.Alacak)
                         {
                             await _db.UpdateAsync(c);
@@ -4829,7 +4852,14 @@ namespace ErmayMuhasebe.Services
                     }
                     else
                     {
-                        if (f.IsDeleted)
+                        if (existing.IsDeleted && !f.IsDeleted)
+                        {
+                            // Yerelde silinmiş fatura buluttan canlandırılmaz!
+                            _ = Task.Run(async () => {
+                                try { await _sync.SyncFaturaAsync(existing); } catch { }
+                            });
+                        }
+                        else if (f.IsDeleted)
                         {
                             await _db.DeleteAsync(existing);
                             var localDetails = await _db.Table<FaturaDetay>().Where(x => x.FaturaId == f.Id).ToListAsync();
@@ -4852,7 +4882,7 @@ namespace ErmayMuhasebe.Services
                         }
                     }
 
-                    if (!f.IsDeleted)
+                    if (!f.IsDeleted && !existing?.IsDeleted == true)
                     {
                         var details = await _sync.PullFaturaDetaylarAsync(f.Id);
                         if (details != null)
@@ -4906,7 +4936,18 @@ namespace ErmayMuhasebe.Services
                     }
                     else
                     {
-                        if (s.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
+                        if (existing.IsDeleted && !s.IsDeleted)
+                        {
+                            // Yerelde silinmiş stok buluttan canlandırılmaz!
+                            _ = Task.Run(async () => {
+                                try { await _sync.SyncStokAsync(existing); } catch { }
+                            });
+                        }
+                        else if (s.IsDeleted) 
+                        { 
+                            await _db.DeleteAsync(existing); 
+                            hasAnyChanges = true; 
+                        }
                         else if (existing.UpdatedAt < s.UpdatedAt || existing.Version < s.Version || existing.Miktar != s.Miktar)
                         {
                             await _db.UpdateAsync(s);

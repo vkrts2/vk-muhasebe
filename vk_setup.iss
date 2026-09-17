@@ -156,8 +156,6 @@ begin
   begin
     SupabaseUrlVal := Trim(SupabasePage.Values[0]);
     SupabaseKeyVal := Trim(SupabasePage.Values[1]);
-    if SupabaseUrlVal = '' then SupabaseUrlVal := 'https://fqgbdymffknglqeqoogt.supabase.co';
-    if SupabaseKeyVal = '' then SupabaseKeyVal := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg';
 
     SmtpEmailVal := Trim(EmailSmtpPage.Values[0]);
     SmtpPassVal := Trim(EmailSmtpPage.Values[1]);
@@ -175,28 +173,27 @@ begin
 
     AppDataDir := ExpandConstant('{localappdata}');
     
-    // 0. Temiz Kurulum: Veritabanı Sıfırla
+    // 0. Temiz Kurulum: Veritabanı ve Bütün Eski Yapılandırmayı Sıfırla
     if WizardIsTaskSelected('cleandatabase') then
     begin
       Exec('taskkill.exe', '/F /IM VK.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Exec('taskkill.exe', '/F /IM ErmayMuhasebe.Desktop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Sleep(1000);
 
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db-wal');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db-shm');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db3');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db3-wal');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db3-shm');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', 'notifications_*.json');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', 'dismissed_alerts_*.json');
+      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db*');
+      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db3*');
+      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.json');
       DeleteFile(AppDataDir + '\ErmayMuhasebe\login_settings.txt');
       DeleteFile(AppDataDir + '\ErmayMuhasebe\company_logo.png');
+      DeleteFile(AppDataDir + '\ermay_cloud_config.json');
     end;
     
-    // 1. Supabase Bulut Yapılandırma Dosyasını Kaydet (Hazır Supabase Bağlantısı)
+    // 1. Supabase Bulut Yapılandırma Dosyasını Kaydet
     ConfigPath := AppDataDir + '\ermay_cloud_config.json';
-    JsonContent := '{"BaseUrl":"' + SupabaseUrlVal + '","AuthSecret":"' + SupabaseKeyVal + '","GoogleApiKey":"","GoogleClientId":"","GoogleClientSecret":"","IsActive":true,"IsAutoSyncEnabled":true}';
+    if (SupabaseUrlVal <> '') and (SupabaseKeyVal <> '') then
+      JsonContent := '{"BaseUrl":"' + SupabaseUrlVal + '","AuthSecret":"' + SupabaseKeyVal + '","GoogleApiKey":"","GoogleClientId":"","GoogleClientSecret":"","IsActive":true,"IsAutoSyncEnabled":true}'
+    else
+      JsonContent := '{"BaseUrl":"","AuthSecret":"","GoogleApiKey":"","GoogleClientId":"","GoogleClientSecret":"","IsActive":false,"IsAutoSyncEnabled":false}';
     SaveStringToFile(ConfigPath, JsonContent, False);
 
     // 2. Kullanıcı/Şifre, SMTP ve Fabrika Sıfırlama Şifresi Dosyası Kaydet

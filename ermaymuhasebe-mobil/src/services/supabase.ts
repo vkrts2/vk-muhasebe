@@ -23,8 +23,8 @@ export interface ExtendedFirebaseConfig extends FirebaseConfig {
   smtpPass?: string;
 }
 
-export const DEFAULT_SUPABASE_URL = 'https://fqgbdymffknglqeqoogt.supabase.co';
-export const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg';
+export const DEFAULT_SUPABASE_URL = '';
+export const DEFAULT_SUPABASE_KEY = '';
 
 let cachedConfig: SupabaseConfig = {
   url: DEFAULT_SUPABASE_URL,
@@ -40,7 +40,10 @@ let cachedExtendedConfig: ExtendedFirebaseConfig = {
 
 let cachedYear: string = new Date().getFullYear().toString();
 let cachedSessionUser: any = null;
-let supabase: SupabaseClient = createClient(cachedConfig.url, cachedConfig.anonKey);
+let supabase: SupabaseClient = createClient(
+  cachedConfig.url || 'https://placeholder.supabase.co',
+  cachedConfig.anonKey || 'placeholder-key'
+);
 
 let configListeners: (() => void)[] = [];
 
@@ -558,20 +561,27 @@ export const readData = async (path: string, timeoutMs = 7000): Promise<any> => 
         console.warn(`[Supabase] readData single error on ${table}/${id}:`, error.message);
         return null;
       }
+      if (data && (data.is_deleted === true || data.is_deleted === 1)) {
+        return null;
+      }
       return data ? normalizeRowFromSupabase(table, data) : null;
     }
 
     // List all
-    const { data, error } = await supabase
-      .from(table)
-      .select('*');
+    let query = supabase.from(table).select('*');
+    if (['cariler', 'stoklar', 'faturalar', 'kasalar', 'bankalar', 'siparisler', 'teklifler', 'notlar', 'cari_hareketler', 'stok_hareketler', 'kasa_hareketler', 'banka_hareketler'].includes(table)) {
+      query = query.or('is_deleted.is.null,is_deleted.eq.false');
+    }
+    const { data, error } = await query;
 
     if (error) {
       console.warn(`[Supabase] readData list error on ${table}:`, error.message);
       return {};
     }
 
-    const normList = (data || []).map((row: any) => normalizeRowFromSupabase(table, row));
+    const normList = (data || [])
+      .filter((row: any) => !row || (row.is_deleted !== true && row.is_deleted !== 1))
+      .map((row: any) => normalizeRowFromSupabase(table, row));
     const recordMap: Record<string, any> = {};
     for (const item of normList) {
       if (item && item.id !== undefined) {
@@ -637,6 +647,13 @@ export const deleteData = async (path: string): Promise<boolean> => {
       return !error;
     }
     if (id) {
+      if (['cariler', 'stoklar', 'faturalar', 'kasalar', 'bankalar', 'siparisler', 'teklifler', 'notlar', 'cari_hareketler', 'stok_hareketler', 'kasa_hareketler', 'banka_hareketler'].includes(table)) {
+        const { error: softErr } = await supabase
+          .from(table)
+          .update({ is_deleted: true, updated_at: new Date().toISOString() })
+          .eq('id', id);
+        if (!softErr) return true;
+      }
       const { error } = await supabase.from(table).delete().eq('id', id);
       return !error;
     }
@@ -839,6 +856,20 @@ export const registerInitialUser = async (username: string, password: string, em
       console.warn('[registerInitialUser] Supabase auth signup warning:', authErr);
     }
 
+    // public.kullanicilar tablosuna da kaydet
+    try {
+      await supabase.from('kullanicilar').upsert({
+        kullanici_adi: cleanUser.toLowerCase(),
+        sifre: cleanPass,
+        email: userEmail,
+        rol: 'Admin',
+        ad_soyad: cleanUser,
+        aktif_mi: true
+      }, { onConflict: 'kullanici_adi' });
+    } catch (dbErr) {
+      console.warn('[registerInitialUser] kullanicilar upsert warning:', dbErr);
+    }
+
     // Yerel belleğe ve oturum durumuna güvenli şekilde kaydet
     await AsyncStorage.setItem('ermay_saved_username', cleanUser);
     await AsyncStorage.setItem('ermay_saved_password', cleanPass);
@@ -865,6 +896,49 @@ export const loginUser = async (usernameOrEmail: string, password: string): Prom
     const targetEmail = cleanUser.includes('@') ? cleanUser : `${cleanUser.toLowerCase()}@ermay.local`;
 
     console.log('[loginUser] Giriş denemesi başlatılıyor:', cleanUser);
+
+    // 0. public.kullanicilar Tablosunu Kontrol Et
+    try {
+      const { data: dbUsers, error: userFetchErr } = await supabase
+        .from('kullanicilar')
+        .select('*');
+
+      if (!userFetchErr && dbUsers && dbUsers.length > 0) {
+        const matchUser = dbUsers.find((u: any) =>
+          (u.kullanici_adi && u.kullanici_adi.toLowerCase() === cleanUser.toLowerCase()) ||
+          (u.email && u.email.toLowerCase() === cleanUser.toLowerCase())
+        );
+
+        if (matchUser) {
+          let passwordMatched = false;
+          if (matchUser.sifre === cleanPass) {
+            passwordMatched = true;
+          } else {
+            const computedHash = await hashPasswordAsync(cleanPass, matchUser.password_salt || matchUser.sifre_salt);
+            if (computedHash === matchUser.sifre) {
+              passwordMatched = true;
+            }
+          }
+
+          if (passwordMatched) {
+            console.log('[loginUser] kullanicilar tablosu eşleşmesi başarılı:', matchUser.kullanici_adi);
+            const sessionUser = {
+              id: matchUser.kullanici_adi,
+              email: matchUser.email || targetEmail,
+              username: matchUser.kullanici_adi,
+              user_metadata: { role: matchUser.rol || 'Admin', fullName: matchUser.ad_soyad || matchUser.kullanici_adi }
+            };
+            cachedSessionUser = sessionUser;
+            await AsyncStorage.setItem('ermay_active_session_user', JSON.stringify(sessionUser));
+            await AsyncStorage.setItem('ermay_saved_username', matchUser.kullanici_adi);
+            await AsyncStorage.setItem('ermay_saved_password', cleanPass);
+            return { success: true, user: sessionUser };
+          }
+        }
+      }
+    } catch (dbUserErr) {
+      console.warn('[loginUser] kullanicilar tablosu kontrol uyarısı:', dbUserErr);
+    }
 
     // 1. Buluttaki Sistem Kullanıcı Kaydını Kontrol Et (notlar tablosu id: 999999)
     try {

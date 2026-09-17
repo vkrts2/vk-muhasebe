@@ -155,9 +155,16 @@ public partial class LoginViewModel : ViewModelBase
                                     existing.PasswordSalt = salt;
                                     if (!string.IsNullOrEmpty(uEmail)) existing.Email = uEmail;
                                     conn.UpdateAsync(existing).GetAwaiter().GetResult();
+                                    var currentUName = uName;
+                                    var currentUPass = uPass;
+                                    var currentUEmail = uEmail;
                                     _ = Task.Run(async () =>
                                     {
-                                        try { await _dbService.SyncService.SyncUserAsync(existing); }
+                                        try 
+                                        { 
+                                            await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
+                                            await _dbService.SyncService.SyncUserAsync(existing); 
+                                        }
                                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
                                     });
                                 }
@@ -173,9 +180,16 @@ public partial class LoginViewModel : ViewModelBase
                                         CreatedAt = DateTime.Now
                                     };
                                     conn.InsertAsync(nu).GetAwaiter().GetResult();
+                                    var currentUName = uName;
+                                    var currentUPass = uPass;
+                                    var currentUEmail = uEmail;
                                     _ = Task.Run(async () =>
                                     {
-                                        try { await _dbService.SyncService.SyncUserAsync(nu); }
+                                        try 
+                                        { 
+                                            await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
+                                            await _dbService.SyncService.SyncUserAsync(nu); 
+                                        }
                                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
                                     });
                                 }
