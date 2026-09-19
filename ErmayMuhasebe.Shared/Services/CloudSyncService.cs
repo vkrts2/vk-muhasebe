@@ -1433,7 +1433,46 @@ namespace ErmayMuhasebe.Services
         public async Task<List<DovizKur>?> PullDovizKurlariAsync() => new();
         public async Task<List<BelgeArsiv>?> PullBelgeArsivAsync() => new();
 
-        public async Task ClearCloudTablesAsync(string tenantId = "default") => await Task.CompletedTask;
+        public async Task ClearCloudTablesAsync(string tenantId = "default")
+        {
+            if (!IsConnected) return;
+
+            // Delete all rows from every synced Supabase table
+            // Using id=gte.0 to match all records (Supabase requires a filter for DELETE)
+            var tablesToClear = new[]
+            {
+                "cari_hareketler", "cariler",
+                "stok_hareketler", "stoklar",
+                "fatura_detaylar", "faturalar",
+                "siparis_detaylar", "siparisler",
+                "teklif_detaylar", "teklifler",
+                "banka_hareketler", "bankalar",
+                "kasa_hareketler", "kasalar",
+                "cekler", "senetler",
+                "kredi_karti_islemler", "eft_islemler",
+                "doviz_kurlari", "belge_arsiv",
+                "notlar", "gorevler", "personeller",
+                "satis_hedefleri", "haftalik_satis_hedefleri", "yillik_satis_hedefleri",
+                "stok_sayim_fisileri", "stok_sayim_detaylari",
+                "portfoy_kartlar",
+                "musteri_takip_klasorler", "musteri_takip_detaylar",
+                "firma_profili"
+            };
+
+            foreach (var table in tablesToClear)
+            {
+                try
+                {
+                    await DeleteFilteredAsync(table, "id=gte.0");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CloudSync] ClearCloudTable '{table}' error: {ex.Message}");
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine("[CloudSync] All cloud tables cleared successfully.");
+        }
 
         // ==========================================
         // BULK INITIAL PUSH (LOCAL SQLITE -> SUPABASE)

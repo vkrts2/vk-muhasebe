@@ -186,6 +186,26 @@ begin
       DeleteFile(AppDataDir + '\ErmayMuhasebe\login_settings.txt');
       DeleteFile(AppDataDir + '\ErmayMuhasebe\company_logo.png');
       DeleteFile(AppDataDir + '\ermay_cloud_config.json');
+
+      // Supabase bulut veritabanını da temizle (eski test verilerinin geri gelmesini engelle)
+      if (SupabaseUrlVal <> '') and (SupabaseKeyVal <> '') then
+      begin
+        Exec('powershell.exe',
+          '-NoProfile -ExecutionPolicy Bypass -Command "' +
+          '$tables = @(''cari_hareketler'',''cariler'',''stok_hareketler'',''stoklar'',' +
+          '''fatura_detaylar'',''faturalar'',''siparis_detaylar'',''siparisler'',' +
+          '''teklif_detaylar'',''teklifler'',''banka_hareketler'',''bankalar'',' +
+          '''kasa_hareketler'',''kasalar'',''cekler'',''senetler'',' +
+          '''kredi_karti_islemler'',''eft_islemler'',''doviz_kurlari'',''belge_arsiv'',' +
+          '''notlar'',''gorevler'',''personeller'',''firma_profili'',' +
+          '''satis_hedefleri'',''haftalik_satis_hedefleri'',''yillik_satis_hedefleri'',' +
+          '''stok_sayim_fisileri'',''stok_sayim_detaylari'',''portfoy_kartlar'',' +
+          '''musteri_takip_klasorler'',''musteri_takip_detaylar''); ' +
+          '$h = @{apikey=''' + SupabaseKeyVal + '''; Authorization=''Bearer ' + SupabaseKeyVal + '''}; ' +
+          'foreach($t in $tables){ try{ Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/'' + $t + ''?id=gte.0'') -Method Delete -Headers $h -ErrorAction SilentlyContinue }catch{} }; ' +
+          'Write-Host ''Supabase temizlendi.''"',
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      end;
     end;
     
     // 1. Supabase Bulut Yapılandırma Dosyasını Kaydet

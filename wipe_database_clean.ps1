@@ -32,19 +32,37 @@ if (Test-Path $dbFile) {
     Write-Host "Mevcut veri guvenlik icin yedeklendi: $backupPath"
 }
 
-# 4. Firebase Cloud verilerini sifirla (Eski test verilerinin geri yuklenmesini onlemek icin)
+# 4. Supabase Bulut verilerini sifirla (Eski test verilerinin geri yuklenmesini onlemek icin)
 $cloudConfigPath = "$env:LOCALAPPDATA\ermay_cloud_config.json"
 if (Test-Path $cloudConfigPath) {
     try {
         $cfg = Get-Content $cloudConfigPath | ConvertFrom-Json
-        if ($cfg.BaseUrl -and $cfg.AuthSecret) {
-            Write-Host "Firebase Bulut veritabani temizleniyor ($($cfg.BaseUrl))..."
-            $url2026 = "$($cfg.BaseUrl)/companies/default/years/2026.json?auth=$($cfg.AuthSecret)"
-            Invoke-RestMethod -Uri $url2026 -Method Delete
-            Write-Host "Firebase 2026 yili verileri (Cariler, Stoklar, Faturalar, vb.) tamamen temizlendi."
+        if ($cfg.BaseUrl -and $cfg.AuthSecret -and $cfg.BaseUrl -match 'supabase\.co') {
+            Write-Host "Supabase bulut veritabani temizleniyor ($($cfg.BaseUrl))..."
+            $headers = @{
+                apikey = $cfg.AuthSecret
+                Authorization = "Bearer $($cfg.AuthSecret)"
+            }
+            $tables = @(
+                'cari_hareketler','cariler','stok_hareketler','stoklar',
+                'fatura_detaylar','faturalar','siparis_detaylar','siparisler',
+                'teklif_detaylar','teklifler','banka_hareketler','bankalar',
+                'kasa_hareketler','kasalar','cekler','senetler',
+                'kredi_karti_islemler','eft_islemler','doviz_kurlari','belge_arsiv',
+                'notlar','gorevler','personeller','firma_profili',
+                'satis_hedefleri','haftalik_satis_hedefleri','yillik_satis_hedefleri',
+                'stok_sayim_fisileri','stok_sayim_detaylari','portfoy_kartlar',
+                'musteri_takip_klasorler','musteri_takip_detaylar'
+            )
+            foreach ($t in $tables) {
+                try {
+                    Invoke-RestMethod -Uri "$($cfg.BaseUrl)/rest/v1/$t`?id=gte.0" -Method Delete -Headers $headers -ErrorAction SilentlyContinue
+                } catch {}
+            }
+            Write-Host "Supabase bulut veritabani tamamen temizlendi."
         }
     } catch {
-        Write-Warning "Firebase temizleme uyarisi: $_"
+        Write-Warning "Supabase temizleme uyarisi: $_"
     }
 }
 
