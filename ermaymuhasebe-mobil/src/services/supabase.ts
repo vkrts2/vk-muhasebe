@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from './storage';
+import { generateMobileRecordId } from '../utils/IdGenerator';
 
 export interface SupabaseConfig {
   url: string;
@@ -93,14 +94,17 @@ const TABLE_MAPPINGS: Record<string, string> = {
   'notlar': 'notlar'
 };
 
-export const parsePath = (path: string): { table: string; id?: string; isDetail?: boolean; foreignKey?: string } => {
-  let clean = path.replace(/^companies\/[^\/]+\/years\/[^\/]+\//, '');
+export const parsePath = (path: string): { table: string; id?: string; field?: string; isDetail?: boolean; foreignKey?: string } => {
+  let clean = path.replace(/^companies\/[^\/]+\/(years\/[^\/]+\/)?/, '');
+  clean = clean.replace(/^companies\/[^\/]+\//, '');
+  clean = clean.replace(/^years\/[^\/]+\//, '');
   clean = clean.replace(/^\/+|\/+$/g, '');
   const parts = clean.split('/');
 
   const rawTable = (parts[0] || '').toLowerCase();
   const table = TABLE_MAPPINGS[rawTable] || rawTable;
   const id = parts[1];
+  const field = parts[2];
 
   if (table === 'fatura_detaylar' && id) {
     return { table, id, isDetail: true, foreignKey: 'fatura_id' };
@@ -112,7 +116,7 @@ export const parsePath = (path: string): { table: string; id?: string; isDetail?
     return { table, id, isDetail: true, foreignKey: 'teklif_id' };
   }
 
-  return { table, id };
+  return { table, id, field };
 };
 
 // --- Storage & Config ---
@@ -240,6 +244,7 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.grup !== undefined) p.grup = data.grup;
     p.is_active = data.isActive !== false && data.is_active !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    p.guncelleme_tarihi = new Date().toISOString();
     return p;
   }
 
@@ -259,6 +264,7 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
     p.is_active = data.isActive !== false && data.is_active !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    p.guncelleme_tarihi = new Date().toISOString();
     return p;
   }
 
@@ -280,6 +286,7 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.kasaId !== undefined || data.kasa_id !== undefined) p.kasa_id = Number(data.kasaId ?? data.kasa_id) || null;
     if (data.bankaId !== undefined || data.banka_id !== undefined) p.banka_id = Number(data.bankaId ?? data.banka_id) || null;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    p.guncelleme_tarihi = new Date().toISOString();
     return p;
   }
 
@@ -362,13 +369,19 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.id !== undefined) p.id = Number(data.id) || data.id;
     p.banka_id = Number(data.bankaId ?? data.banka_id) || 0;
     p.tarih = data.tarih || new Date().toISOString();
-    p.hareket_turu = data.hareketTuru || data.islemTuru || data.hareket_turu || '';
+    p.hareket_turu = data.hareketTuru || data.islemTuru || data.hareket_turu || (Number(data.yatan ?? data.giren) > 0 ? 'YATAN' : 'ÇEKEN');
     p.evrak_no = data.evrakNo || data.evrak_no || '';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
-    p.yatan = Number(data.yatan ?? data.giren) || 0;
-    p.ceken = Number(data.ceken ?? data.cikan) || 0;
+    const tutar = Number(data.tutar) || 0;
+    const isYatan = String(p.hareket_turu).toUpperCase().includes('YATAN') ||
+                    String(p.hareket_turu).toUpperCase().includes('GELEN') ||
+                    String(p.hareket_turu).toUpperCase().includes('TAHSİLAT') ||
+                    String(p.hareket_turu).toUpperCase().includes('GİRİŞ');
+    p.yatan = Number(data.yatan ?? data.giren) || (isYatan ? tutar : 0);
+    p.ceken = Number(data.ceken ?? data.cikan) || (!isYatan ? tutar : 0);
     if (data.cariId !== undefined || data.cari_id !== undefined) p.cari_id = Number(data.cariId ?? data.cari_id) || null;
     if (data.faturaId !== undefined || data.fatura_id !== undefined) p.fatura_id = Number(data.faturaId ?? data.fatura_id) || null;
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
 
@@ -390,13 +403,125 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.id !== undefined) p.id = Number(data.id) || data.id;
     p.kasa_id = Number(data.kasaId ?? data.kasa_id) || 0;
     p.tarih = data.tarih || new Date().toISOString();
-    p.hareket_turu = data.hareketTuru || data.islemTuru || data.hareket_turu || '';
+    p.hareket_turu = data.hareketTuru || data.islemTuru || data.hareket_turu || (Number(data.gelir ?? data.giren) > 0 ? 'GELİR' : 'GİDER');
     p.evrak_no = data.evrakNo || data.evrak_no || '';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
-    p.gelir = Number(data.gelir ?? data.giren) || 0;
-    p.gider = Number(data.gider ?? data.cikan) || 0;
+    const tutar = Number(data.tutar) || 0;
+    const isGelir = String(p.hareket_turu).toUpperCase().includes('GELİR') ||
+                    String(p.hareket_turu).toUpperCase().includes('TAHSİLAT') ||
+                    String(p.hareket_turu).toUpperCase().includes('GİRİŞ');
+    p.gelir = Number(data.gelir ?? data.giren) || (isGelir ? tutar : 0);
+    p.gider = Number(data.gider ?? data.cikan) || (!isGelir ? tutar : 0);
     if (data.cariId !== undefined || data.cari_id !== undefined) p.cari_id = Number(data.cariId ?? data.cari_id) || null;
     if (data.faturaId !== undefined || data.fatura_id !== undefined) p.fatura_id = Number(data.faturaId ?? data.fatura_id) || null;
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    return p;
+  }
+
+  if (t === 'firma_profili') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    else p.id = 1;
+
+    if (data.unvan !== undefined || data.firmaAdi !== undefined || data.firma_adi !== undefined) {
+      p.unvan = data.unvan ?? data.firmaAdi ?? data.firma_adi;
+    }
+    if (data.vergi_dairesi !== undefined || data.vergiDairesi !== undefined) {
+      p.vergi_dairesi = data.vergi_dairesi ?? data.vergiDairesi;
+    }
+    if (data.vergi_no !== undefined || data.vergiNo !== undefined) {
+      p.vergi_no = data.vergi_no ?? data.vergiNo;
+    }
+    if (data.adres !== undefined) p.adres = data.adres;
+    if (data.telefon !== undefined) p.telefon = data.telefon;
+    if (data.email !== undefined || data.eposta !== undefined) {
+      p.email = data.email ?? data.eposta;
+    }
+    if (data.web_sitesi !== undefined || data.web !== undefined || data.webSitesi !== undefined) {
+      p.web_sitesi = data.web_sitesi ?? data.web ?? data.webSitesi;
+    }
+    if (data.logo_base64 !== undefined || data.logoBase64 !== undefined || data.LogoBase64 !== undefined) {
+      p.logo_base64 = data.logo_base64 ?? data.logoBase64 ?? data.LogoBase64;
+    }
+    return p;
+  }
+
+  if (t === 'siparisler') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    p.siparis_no = data.siparisNo || data.siparis_no || '';
+    p.siparis_turu = data.siparisTuru || data.tur || data.siparis_turu || 'Siparis';
+    p.cari_id = Number(data.cariId ?? data.cari_id) || null;
+    p.cari_unvan = data.cariUnvan || data.cari_unvan || '';
+    p.tarih = data.tarih || new Date().toISOString();
+    p.teslim_tarihi = data.teslimTarihi || data.teslimatTarihi || data.teslim_tarihi || null;
+    p.ara_toplam = Number(data.araToplam ?? data.ara_toplam) || 0;
+    p.kdv_toplam = Number(data.kdvToplam ?? data.kdv_toplam) || 0;
+    p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
+    p.durum = data.durum || 'Bekliyor';
+    if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    return p;
+  }
+
+  if (t === 'siparis_detaylar') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    p.siparis_id = Number(data.siparisId ?? data.siparis_id) || 0;
+    p.stok_id = Number(data.stokId ?? data.stok_id) || null;
+    p.stok_kodu = data.stokKodu || data.stok_kodu || '';
+    p.stok_adi = data.stokAdi || data.stok_adi || '';
+    p.miktar = Number(data.miktar) || 0;
+    p.birim = data.birim || 'Adet';
+    p.birim_fiyat = Number(data.birimFiyat ?? data.fiyat ?? data.birim_fiyat) || 0;
+    p.kdv_orani = Number(data.kdvOrani ?? data.kdv ?? data.kdv_orani) || 0;
+    p.kdv_tutari = Number(data.kdvTutari ?? data.kdv_tutari) || 0;
+    p.toplam_tutar = Number(data.toplamTutar ?? data.tutar ?? data.toplam_tutar) || 0;
+    return p;
+  }
+
+  if (t === 'teklifler') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    p.teklif_no = data.teklifNo || data.teklif_no || '';
+    p.teklif_turu = data.teklifTuru || data.tur || data.teklif_turu || 'Teklif';
+    p.cari_id = Number(data.cariId ?? data.cari_id) || null;
+    p.cari_unvan = data.cariUnvan || data.cari_unvan || '';
+    p.tarih = data.tarih || new Date().toISOString();
+    p.gecerlilik_tarihi = data.gecerlilikTarihi || data.gecerlilik_tarihi || null;
+    p.ara_toplam = Number(data.araToplam ?? data.ara_toplam) || 0;
+    p.kdv_toplam = Number(data.kdvToplam ?? data.kdv_toplam) || 0;
+    p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
+    p.durum = data.durum || 'Bekliyor';
+    if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
+    return p;
+  }
+
+  if (t === 'teklif_detaylar') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    p.teklif_id = Number(data.teklifId ?? data.teklif_id) || 0;
+    p.stok_id = Number(data.stokId ?? data.stok_id) || null;
+    p.stok_kodu = data.stokKodu || data.stok_kodu || '';
+    p.stok_adi = data.stokAdi || data.stok_adi || '';
+    p.miktar = Number(data.miktar) || 0;
+    p.birim = data.birim || 'Adet';
+    p.birim_fiyat = Number(data.birimFiyat ?? data.fiyat ?? data.birim_fiyat) || 0;
+    p.kdv_orani = Number(data.kdvOrani ?? data.kdv ?? data.kdv_orani) || 0;
+    p.kdv_tutari = Number(data.kdvTutari ?? data.kdv_tutari) || 0;
+    p.toplam_tutar = Number(data.toplamTutar ?? data.tutar ?? data.toplam_tutar) || 0;
+    return p;
+  }
+
+  if (t === 'notlar') {
+    const p: any = {};
+    if (data.id !== undefined) p.id = Number(data.id) || data.id;
+    p.baslik = data.baslik || data.title || '';
+    p.icerik = data.icerik || data.content || '';
+    p.renk = data.renk || data.color || '#0061FF';
+    p.tarih = data.tarih || new Date().toISOString();
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
 
@@ -407,6 +532,23 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
   if (!row || typeof row !== 'object') return row;
   const t = table.toLowerCase();
   const r = toCamelCase(row);
+
+  if (t === 'firma_profili') {
+    return {
+      ...r,
+      id: 1,
+      firmaAdi: row.unvan || r.unvan || '',
+      unvan: row.unvan || r.unvan || '',
+      vergiDairesi: row.vergi_dairesi || r.vergiDairesi || '',
+      vergiNo: row.vergi_no || r.vergiNo || '',
+      adres: row.adres || r.adres || '',
+      telefon: row.telefon || r.telefon || '',
+      eposta: row.email || r.email || '',
+      email: row.email || r.email || '',
+      webSitesi: row.web_sitesi || r.webSitesi || '',
+      logoBase64: row.logo_base64 || r.logoBase64 || null
+    };
+  }
 
   if (t === 'cariler') {
     const kod = row.cari_kodu || row.kod || r.cariKod || `CARI-${row.id}`;
@@ -542,6 +684,118 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
     };
   }
 
+  if (t === 'kasalar') {
+    return {
+      ...r,
+      kasaKodu: row.kasa_kodu || r.kasaKodu || '',
+      kasaAdi: row.kasa_adi || r.kasaAdi || '',
+      ad: row.kasa_adi || r.kasaAdi || '',
+      bakiye: Number(row.bakiye ?? r.bakiye) || 0
+    };
+  }
+
+  if (t === 'banka_hareketler') {
+    const yatan = Number(row.yatan ?? row.giren ?? r.yatan ?? r.giren) || 0;
+    const ceken = Number(row.ceken ?? row.cikan ?? r.ceken ?? r.cikan) || 0;
+    const islemTuru = row.hareket_turu || r.islemTuru || r.hareketTuru || (yatan > 0 ? 'YATAN' : 'ÇEKİLEN');
+    return {
+      ...r,
+      bankaId: row.banka_id || r.bankaId,
+      evrakNo: row.evrak_no || r.evrakNo || '',
+      islemTuru,
+      hareketTuru: islemTuru,
+      yatan,
+      ceken,
+      giren: yatan,
+      cikan: ceken,
+      tutar: yatan > 0 ? yatan : ceken
+    };
+  }
+
+  if (t === 'kasa_hareketler') {
+    const giren = Number(row.gelir ?? row.giren ?? r.gelir ?? r.giren) || 0;
+    const cikan = Number(row.gider ?? row.ceken ?? r.gider ?? r.ceken) || 0;
+    return {
+      ...r,
+      kasaId: row.kasa_id || r.kasaId,
+      evrakNo: row.evrak_no || r.evrakNo || '',
+      islemTuru: row.hareket_turu || r.islemTuru || r.hareketTuru || '',
+      hareketTuru: row.hareket_turu || r.islemTuru || r.hareketTuru || '',
+      gelir: giren,
+      gider: cikan,
+      giren,
+      cikan,
+      tutar: giren > 0 ? giren : cikan
+    };
+  }
+
+  if (t === 'siparisler') {
+    return {
+      ...r,
+      siparisNo: row.siparis_no || r.siparisNo || '',
+      cariId: row.cari_id || r.cariId,
+      cariUnvan: row.cari_unvan || r.cariUnvan || '',
+      teslimTarihi: row.teslim_tarihi || r.teslimTarihi || r.teslimatTarihi,
+      teslimatTarihi: row.teslim_tarihi || r.teslimTarihi || r.teslimatTarihi,
+      genelToplam: Number(row.genel_toplam ?? r.genelToplam) || 0,
+      durum: row.durum || r.durum || 'Bekliyor'
+    };
+  }
+
+  if (t === 'siparis_detaylar') {
+    return {
+      ...r,
+      siparisId: row.siparis_id || r.siparisId,
+      stokId: row.stok_id || r.stokId,
+      stokKodu: row.stok_kodu || r.stokKodu || '',
+      stokAdi: row.stok_adi || r.stokAdi || '',
+      miktar: Number(row.miktar ?? r.miktar) || 0,
+      birimFiyat: Number(row.birim_fiyat ?? r.birimFiyat ?? r.fiyat) || 0,
+      fiyat: Number(row.birim_fiyat ?? r.birimFiyat ?? r.fiyat) || 0,
+      toplamTutar: Number(row.toplam_tutar ?? r.toplamTutar ?? r.tutar) || 0,
+      tutar: Number(row.toplam_tutar ?? r.toplamTutar ?? r.tutar) || 0
+    };
+  }
+
+  if (t === 'teklifler') {
+    return {
+      ...r,
+      teklifNo: row.teklif_no || r.teklifNo || '',
+      cariId: row.cari_id || r.cariId,
+      cariUnvan: row.cari_unvan || r.cariUnvan || '',
+      gecerlilikTarihi: row.gecerlilik_tarihi || r.gecerlilikTarihi,
+      genelToplam: Number(row.genel_toplam ?? r.genelToplam) || 0,
+      durum: row.durum || r.durum || 'Bekliyor'
+    };
+  }
+
+  if (t === 'teklif_detaylar') {
+    return {
+      ...r,
+      teklifId: row.teklif_id || r.teklifId,
+      stokId: row.stok_id || r.stokId,
+      stokKodu: row.stok_kodu || r.stokKodu || '',
+      stokAdi: row.stok_adi || r.stokAdi || '',
+      miktar: Number(row.miktar ?? r.miktar) || 0,
+      birimFiyat: Number(row.birim_fiyat ?? r.birimFiyat ?? r.fiyat) || 0,
+      fiyat: Number(row.birim_fiyat ?? r.birimFiyat ?? r.fiyat) || 0,
+      toplamTutar: Number(row.toplam_tutar ?? r.toplamTutar ?? r.tutar) || 0,
+      tutar: Number(row.toplam_tutar ?? r.toplamTutar ?? r.tutar) || 0
+    };
+  }
+
+  if (t === 'notlar') {
+    return {
+      ...r,
+      title: row.baslik || row.title || r.baslik || r.title || '',
+      baslik: row.baslik || row.title || r.baslik || r.title || '',
+      content: row.icerik || row.content || r.icerik || r.content || '',
+      icerik: row.icerik || row.content || r.icerik || r.content || '',
+      color: row.renk || row.color || r.renk || r.color || '#0061FF',
+      renk: row.renk || row.color || r.renk || r.color || '#0061FF'
+    };
+  }
+
   return r;
 };
 
@@ -595,6 +849,24 @@ export const readData = async (path: string, timeoutMs = 7000): Promise<any> => 
     const normList = (data || [])
       .filter((row: any) => !row || (row.is_deleted !== true && row.is_deleted !== 1))
       .map((row: any) => normalizeRowFromSupabase(table, row));
+
+    // For detail tables when queried without specific ID, group by parent foreign key
+    // so that screens can access them via detailsMap[parentId]
+    if (table === 'fatura_detaylar' || table === 'siparis_detaylar' || table === 'teklif_detaylar') {
+      const parentFk = table === 'fatura_detaylar' ? 'faturaId' : (table === 'siparis_detaylar' ? 'siparisId' : 'teklifId');
+      const snakeFk = table === 'fatura_detaylar' ? 'fatura_id' : (table === 'siparis_detaylar' ? 'siparis_id' : 'teklif_id');
+      const groupedMap: Record<string, any[]> = {};
+      for (const item of normList) {
+        if (!item) continue;
+        const parentId = String(item[parentFk] || item[snakeFk] || '');
+        if (parentId) {
+          if (!groupedMap[parentId]) groupedMap[parentId] = [];
+          groupedMap[parentId].push(item);
+        }
+      }
+      return groupedMap;
+    }
+
     const recordMap: Record<string, any> = {};
     for (const item of normList) {
       if (item && item.id !== undefined) {
@@ -631,9 +903,20 @@ export const writeData = async (path: string, data: any): Promise<boolean> => {
       return await deleteData(path);
     }
 
-    let payload = { ...data };
-    if (id && payload.id === undefined) {
-      payload.id = Number(id) || id;
+    const { field } = parsePath(path);
+    let payload: any;
+    if (typeof data !== 'object' || Array.isArray(data)) {
+      if (field) {
+        const snakeField = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+        payload = { id: Number(id) || id || 1, [snakeField]: data };
+      } else {
+        payload = data;
+      }
+    } else {
+      payload = { ...data };
+      if (id && payload.id === undefined) {
+        payload.id = Number(id) || id;
+      }
     }
 
     const sanitizedData = sanitizePayloadForTable(table, payload);
@@ -660,14 +943,20 @@ export const deleteData = async (path: string): Promise<boolean> => {
       return !error;
     }
     if (id) {
+      const cleanId = (!isNaN(Number(id)) && String(Number(id)) === String(id).trim()) ? Number(id) : id;
       if (['cariler', 'stoklar', 'faturalar', 'kasalar', 'bankalar', 'siparisler', 'teklifler', 'notlar', 'cari_hareketler', 'stok_hareketler', 'kasa_hareketler', 'banka_hareketler'].includes(table)) {
+        const updatePayload: any = { is_deleted: true };
+        if (['cariler', 'stoklar', 'faturalar', 'firma_profili'].includes(table)) {
+          updatePayload.guncelleme_tarihi = new Date().toISOString();
+        }
         const { error: softErr } = await supabase
           .from(table)
-          .update({ is_deleted: true, updated_at: new Date().toISOString() })
-          .eq('id', id);
+          .update(updatePayload)
+          .eq('id', cleanId);
         if (!softErr) return true;
+        console.warn(`[Supabase] soft delete error on ${table}/${id}:`, softErr.message);
       }
-      const { error } = await supabase.from(table).delete().eq('id', id);
+      const { error } = await supabase.from(table).delete().eq('id', cleanId);
       return !error;
     }
     return false;
@@ -709,6 +998,24 @@ export const subscribeToPath = (path: string, callback: (data: any) => void): ((
         console.warn(`[Supabase] Initial read error on ${path}:`, err);
       });
 
+    let debounceTimer: any = null;
+    const debouncedRead = () => {
+      if (!isActive) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (!isActive) return;
+        readData(path)
+          .then((data) => {
+            if (isActive && data !== null) {
+              callback(data);
+            }
+          })
+          .catch((err) => {
+            console.warn(`[Supabase] Realtime read error on ${path}:`, err);
+          });
+      }, 250);
+    };
+
     // Generate unique channel name per subscription to avoid "cannot add postgres_changes callbacks after subscribe()"
     const uniqueChannelName = `sub_${table}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
@@ -717,22 +1024,27 @@ export const subscribeToPath = (path: string, callback: (data: any) => void): ((
         'postgres_changes',
         { event: '*', schema: 'public', table },
         () => {
-          if (!isActive) return;
-          readData(path)
-            .then((data) => {
-              if (isActive && data !== null) {
-                callback(data);
-              }
-            })
-            .catch((err) => {
-              console.warn(`[Supabase] Realtime read error on ${path}:`, err);
-            });
+          debouncedRead();
         }
       )
       .subscribe();
 
+    // Fallback polling timer (every 15 seconds) to guarantee sync parity even if websocket misses an event
+    const pollInterval = setInterval(() => {
+      if (!isActive) return;
+      readData(path)
+        .then((data) => {
+          if (isActive && data !== null) {
+            callback(data);
+          }
+        })
+        .catch(() => {});
+    }, 15000);
+
     return () => {
       isActive = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(pollInterval);
       try {
         supabase.removeChannel(channel);
       } catch (e) {
@@ -788,7 +1100,7 @@ export const updateCariBaseInfoInAllYears = async (cariId: number | string, base
 };
 
 export const pushData = async (path: string, data: any): Promise<string | null> => {
-  const newId = Date.now();
+  const newId = generateMobileRecordId();
   const ok = await writeData(`${path}/${newId}`, { ...data, id: newId });
   return ok ? newId.toString() : null;
 };
@@ -869,15 +1181,22 @@ export const registerInitialUser = async (username: string, password: string, em
       console.warn('[registerInitialUser] Supabase auth signup warning:', authErr);
     }
 
-    // public.kullanicilar tablosuna da kaydet
+    // public.kullanicilar tablosuna da kaydet (güvenli hash ile)
     try {
+      const generatedSalt = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const hashedPassword = await hashPasswordAsync(cleanPass, generatedSalt);
       await supabase.from('kullanicilar').upsert({
         kullanici_adi: cleanUser.toLowerCase(),
-        sifre: cleanPass,
+        username: cleanUser.toLowerCase(),
+        sifre: hashedPassword,
+        password_hash: hashedPassword,
+        password_salt: generatedSalt,
         email: userEmail,
         rol: 'Admin',
+        role: 'Admin',
         ad_soyad: cleanUser,
-        aktif_mi: true
+        aktif_mi: true,
+        is_active: true
       }, { onConflict: 'kullanici_adi' });
     } catch (dbErr) {
       console.warn('[registerInitialUser] kullanicilar upsert warning:', dbErr);

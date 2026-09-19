@@ -22,6 +22,8 @@ public class UnitOfWorkTests : IDisposable
         ErmayMuhasebe.Data.Constants.DatabasePath = _testDbPath;
         
         _dbService = new DatabaseService();
+        _dbService.IsTestMode = true;
+        _dbService.DisableCloudSync = true;
         _uow = new UnitOfWork(_dbService);
     }
 

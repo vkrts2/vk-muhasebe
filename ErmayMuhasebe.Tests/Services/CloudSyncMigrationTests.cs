@@ -5,6 +5,7 @@ using Xunit.Abstractions;
 
 namespace ErmayMuhasebe.Tests.Services;
 
+[Collection("DatabaseTests")]
 public class CloudSyncMigrationTests
 {
     private readonly ITestOutputHelper _output;
@@ -97,6 +98,78 @@ public class CloudSyncMigrationTests
         await syncService.DeleteAsync("cariler", 9999);
         await syncService.DeleteAsync("cari_hareketler", 99991);
         _output.WriteLine("Cleaned up test records successfully.");
+    }
+
+    [Fact]
+    public async Task CheckInvoiceFtr381497Details()
+    {
+        string actualDb = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe", "ErmayV4_Stable.db3");
+        ErmayMuhasebe.Data.Constants.DatabasePath = actualDb;
+        var dbService = new DatabaseService();
+        await dbService.InitializeAsync();
+
+        var sync = new CloudSyncService(new ErmayMuhasebe.Services.YearContext());
+        var cloudFtrs = await sync.PullFaturalarAsync();
+        var cloudTargetFtr = cloudFtrs?.FirstOrDefault(x => x.FaturaNo == "FTR-381497");
+        _output.WriteLine($"Cloud Target Ftr: {(cloudTargetFtr != null ? $"Id={cloudTargetFtr.Id}, No={cloudTargetFtr.FaturaNo}" : "NULL")}");
+        if (cloudTargetFtr != null)
+        {
+            var directDetails = await sync.PullFaturaDetaylarAsync(cloudTargetFtr.Id);
+            _output.WriteLine($"Direct PullFaturaDetaylarAsync({cloudTargetFtr.Id}) count: {directDetails?.Count ?? -1}");
+            if (directDetails != null)
+            {
+                foreach(var dd in directDetails)
+                {
+                    _output.WriteLine($"  DD: Id={dd.Id}, FaturaId={dd.FaturaId}, StokAdi={dd.StokAdi}, Miktar={dd.Miktar}, ToplamTutar={dd.ToplamTutar}");
+                }
+            }
+        }
+
+        var profil = await dbService.GetFirmaProfiliAsync();
+        string diskLogo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe", "company_logo.png");
+        _output.WriteLine($"FirmaProfili in SQLite: FirmaAdi={profil.FirmaAdi}, HasLogoBase64={!string.IsNullOrEmpty(profil.LogoBase64)}, LogoBase64Length={profil.LogoBase64?.Length ?? 0}, LogoFatura={profil.LogoFatura}");
+        _output.WriteLine($"company_logo.png exists on disk: {File.Exists(diskLogo)} (length={ (File.Exists(diskLogo) ? new FileInfo(diskLogo).Length : 0) })");
+
+        var cloudProfil = await sync.PullFirmaProfiliAsync();
+        _output.WriteLine($"Cloud FirmaProfili: FirmaAdi={cloudProfil?.FirmaAdi}, HasLogoBase64={!string.IsNullOrEmpty(cloudProfil?.LogoBase64)}, LogoBase64Length={cloudProfil?.LogoBase64?.Length ?? 0}");
+
+        var db = await dbService.GetGlobalConnectionAsync();
+        var allDbFaturalar = await db.Table<Fatura>().ToListAsync();
+        _output.WriteLine($"All Faturalar in DB count: {allDbFaturalar.Count}");
+        foreach (var f in allDbFaturalar)
+        {
+            _output.WriteLine($"  DB Fatura: Id={f.Id}, No={f.FaturaNo}, Cari={f.CariUnvan}, Toplam={f.GenelToplam}, IsDeleted={f.IsDeleted}");
+        }
+
+        var allDbDetaylar = await db.Table<FaturaDetay>().ToListAsync();
+        _output.WriteLine($"All FaturaDetay in DB count: {allDbDetaylar.Count}");
+        foreach (var d in allDbDetaylar)
+        {
+            _output.WriteLine($"  DB Detay: Id={d.Id}, FaturaId={d.FaturaId}, StokAdi={d.StokAdi}, Miktar={d.Miktar}, Tutar={d.ToplamTutar}");
+        }
+
+        var ftr = allDbFaturalar.FirstOrDefault(x => x.FaturaNo == "FTR-381497");
+        _output.WriteLine($"Fatura FTR-381497 after sync: {(ftr != null ? $"Found Id={ftr.Id}, Cari={ftr.CariUnvan}, GenelToplam={ftr.GenelToplam}" : "NOT FOUND")}");
+
+        if (ftr != null)
+        {
+            var uow = new ErmayMuhasebe.Repositories.UnitOfWork(dbService);
+            var detaylar = await uow.Faturalar.GetDetaylarAsync(ftr.Id);
+            _output.WriteLine($"Detaylar count for FTR-381497 (Id={ftr.Id}): {detaylar.Count}");
+            foreach (var d in detaylar)
+            {
+                _output.WriteLine($"  Detay: Id={d.Id}, StokId={d.StokId}, StokKodu={d.StokKodu}, StokAdi={d.StokAdi}, Miktar={d.Miktar}, BirimFiyat={d.BirimFiyat}, ToplamTutar={d.ToplamTutar}");
+            }
+            Assert.NotEmpty(detaylar);
+
+            // Test PDF Generation
+            var pdfService = new PdfService();
+            var pdfBytes = pdfService.GenerateFaturaPdf(ftr, detaylar);
+            _output.WriteLine($"Generated Fatura PDF byte length: {pdfBytes.Length}");
+            Assert.True(pdfBytes.Length > 1000);
+        }
+
+        _output.WriteLine($"End of test.");
     }
 }
 

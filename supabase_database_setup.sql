@@ -290,3 +290,82 @@ CREATE TABLE IF NOT EXISTS public.notlar (
 );
 ALTER TABLE public.notlar ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "notlar_all_policy" ON public.notlar FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================================================
+-- 17. SUPABASE REALTIME (CANLI YAYIN) YETKİLERİ
+-- Mobil ve masaüstü arasında saniyelik canlı senkronizasyon için tabloları realtime yayınına ekler.
+-- ==============================================================================
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE 
+            public.cariler,
+            public.cari_hareketler,
+            public.stoklar,
+            public.stok_hareketler,
+            public.faturalar,
+            public.fatura_detaylar,
+            public.kasalar,
+            public.kasa_hareketler,
+            public.bankalar,
+            public.banka_hareketler,
+            public.siparisler,
+            public.siparis_detaylar,
+            public.teklifler,
+            public.teklif_detaylar,
+            public.firma_profili,
+            public.notlar;
+    END IF;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN others THEN NULL;
+END $$;
+
+
+-- ==============================================================================
+-- GÜVENLİK NOTU VE CANLI ORTAM RLS POLİTİKALARI (PRODUCTION HARDENING)
+-- ==============================================================================
+-- Yukarıdaki varsayılan "FOR ALL USING (true) WITH CHECK (true)" politikaları,
+-- masaüstü ve mobil istemcilerin anonim anahtar ile doğrudan senkronizasyonu için
+-- geliştirme ortamında tam erişim sağlar.
+-- Canlı (Production) ortama geçişte yalnızca oturum açmış (authenticated) kullanıcıların
+-- veri okuyup yazabilmesi için aşağıdaki sorgular SQL Editor'de çalıştırılabilir:
+/*
+-- 1. Açık politikaları kaldır:
+DROP POLICY IF EXISTS "cariler_all_policy" ON public.cariler;
+DROP POLICY IF EXISTS "cari_hareketler_all_policy" ON public.cari_hareketler;
+DROP POLICY IF EXISTS "stoklar_all_policy" ON public.stoklar;
+DROP POLICY IF EXISTS "stok_hareketler_all_policy" ON public.stok_hareketler;
+DROP POLICY IF EXISTS "faturalar_all_policy" ON public.faturalar;
+DROP POLICY IF EXISTS "fatura_detaylar_all_policy" ON public.fatura_detaylar;
+DROP POLICY IF EXISTS "kasalar_all_policy" ON public.kasalar;
+DROP POLICY IF EXISTS "kasa_hareketler_all_policy" ON public.kasa_hareketler;
+DROP POLICY IF EXISTS "bankalar_all_policy" ON public.bankalar;
+DROP POLICY IF EXISTS "banka_hareketler_all_policy" ON public.banka_hareketler;
+DROP POLICY IF EXISTS "siparisler_all_policy" ON public.siparisler;
+DROP POLICY IF EXISTS "siparis_detaylar_all_policy" ON public.siparis_detaylar;
+DROP POLICY IF EXISTS "teklifler_all_policy" ON public.teklifler;
+DROP POLICY IF EXISTS "teklif_detaylar_all_policy" ON public.teklif_detaylar;
+DROP POLICY IF EXISTS "firma_profili_all_policy" ON public.firma_profili;
+DROP POLICY IF EXISTS "notlar_all_policy" ON public.notlar;
+DROP POLICY IF EXISTS "kullanicilar_all_policy" ON public.kullanicilar;
+
+-- 2. Yalnızca kimliği doğrulanmış kullanıcılar için RLS kur:
+CREATE POLICY "cariler_auth_policy" ON public.cariler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "cari_hareketler_auth_policy" ON public.cari_hareketler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "stoklar_auth_policy" ON public.stoklar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "stok_hareketler_auth_policy" ON public.stok_hareketler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "faturalar_auth_policy" ON public.faturalar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "fatura_detaylar_auth_policy" ON public.fatura_detaylar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "kasalar_auth_policy" ON public.kasalar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "kasa_hareketler_auth_policy" ON public.kasa_hareketler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "bankalar_auth_policy" ON public.bankalar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "banka_hareketler_auth_policy" ON public.banka_hareketler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "siparisler_auth_policy" ON public.siparisler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "siparis_detaylar_auth_policy" ON public.siparis_detaylar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "teklifler_auth_policy" ON public.teklifler FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "teklif_detaylar_auth_policy" ON public.teklif_detaylar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "firma_profili_auth_policy" ON public.firma_profili FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "notlar_auth_policy" ON public.notlar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "kullanicilar_auth_policy" ON public.kullanicilar FOR ALL TO authenticated USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+*/

@@ -193,10 +193,22 @@ public partial class App : Application, IRecipient<ShowCariDetailMessage>, IReci
             try
             {
                 var logoPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe", "company_logo.png");
-                if (System.IO.File.Exists(logoPath))
+                var pdfService = Services?.GetService<PdfService>();
+                if (System.IO.File.Exists(logoPath) && pdfService != null)
                 {
-                    var pdfService = Services?.GetService<PdfService>();
-                    if (pdfService != null) pdfService.LogoBytes = System.IO.File.ReadAllBytes(logoPath);
+                    pdfService.LogoBytes = System.IO.File.ReadAllBytes(logoPath);
+                }
+
+                var db = Services?.GetService<DatabaseService>();
+                if (db != null && pdfService != null)
+                {
+                    db.OnFirmaProfiliChanged += (profil) => {
+                        pdfService.ResetLogoCache();
+                        if (!string.IsNullOrEmpty(profil?.LogoBase64))
+                        {
+                            try { pdfService.LogoBytes = Convert.FromBase64String(profil.LogoBase64); } catch { }
+                        }
+                    };
                 }
             }
             catch { }

@@ -40,9 +40,22 @@ public class AuthService
     }
 
     private static readonly byte[] LegacyKey = Encoding.UTF8.GetBytes("ERMAY-SECURE-KEY-2025");
-    // 256-bit AES Key (PBKDF2 türetimli veya 32-byte hash)
-    private static readonly byte[] AesKey = SHA256.HashData(Encoding.UTF8.GetBytes("ERMAY-AES-SECURE-MASTER-KEY-2025-V2!"));
+    private static readonly byte[] FallbackAesKey = SHA256.HashData(Encoding.UTF8.GetBytes("ERMAY-AES-SECURE-MASTER-KEY-2025-V2!"));
     private const string EncryptPrefix = "ENC::AES::";
+
+    private static byte[] GetDerivedKey()
+    {
+        try
+        {
+            var seed = $"{Environment.MachineName}::{Environment.UserName}::VK_SECURE_VAULT_2025";
+            using var hmac = new HMACSHA256(FallbackAesKey);
+            return hmac.ComputeHash(Encoding.UTF8.GetBytes(seed));
+        }
+        catch
+        {
+            return FallbackAesKey;
+        }
+    }
 
     public static string Encrypt(string plainText)
     {
@@ -50,7 +63,7 @@ public class AuthService
         try
         {
             using var aes = Aes.Create();
-            aes.Key = AesKey;
+            aes.Key = GetDerivedKey();
             aes.GenerateIV();
             var iv = aes.IV;
 
@@ -79,15 +92,44 @@ public class AuthService
         // AES formatında mı kontrol et
         if (cipherText.StartsWith(EncryptPrefix))
         {
+            var base64Data = cipherText.Substring(EncryptPrefix.Length);
+            byte[] fullBytes;
             try
             {
-                var base64Data = cipherText.Substring(EncryptPrefix.Length);
-                var fullBytes = Convert.FromBase64String(base64Data);
-                if (fullBytes.Length < 16) return "";
+                fullBytes = Convert.FromBase64String(base64Data);
+            }
+            catch
+            {
+                return "";
+            }
+            if (fullBytes.Length < 16) return "";
 
+            // 1. Önce cihaz-türetimli dinamik anahtar ile dene
+            try
+            {
                 using var aes = Aes.Create();
-                aes.Key = AesKey;
+                aes.Key = GetDerivedKey();
+                byte[] iv = new byte[16];
+                Array.Copy(fullBytes, 0, iv, 0, 16);
+                aes.IV = iv;
 
+                using var decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+                using var ms = new MemoryStream(fullBytes, 16, fullBytes.Length - 16);
+                using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
+                using var sr = new StreamReader(cs, Encoding.UTF8);
+                string res = sr.ReadToEnd();
+                if (!string.IsNullOrEmpty(res)) return res;
+            }
+            catch
+            {
+                // Fallback'e devam et
+            }
+
+            // 2. Geriye dönük uyumluluk: Eski FallbackAesKey ile dene
+            try
+            {
+                using var aes = Aes.Create();
+                aes.Key = FallbackAesKey;
                 byte[] iv = new byte[16];
                 Array.Copy(fullBytes, 0, iv, 0, 16);
                 aes.IV = iv;

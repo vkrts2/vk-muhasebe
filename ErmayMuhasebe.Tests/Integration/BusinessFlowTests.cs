@@ -28,6 +28,8 @@ namespace ErmayMuhasebe.Tests.Integration
             }
             _dbService = new DatabaseService();
             _dbService.UseEncryption = false;
+            _dbService.DisableCloudSync = true;
+            _dbService.IsTestMode = true;
             _pdfService = new PdfService();
             _excelService = new ExcelService();
         }

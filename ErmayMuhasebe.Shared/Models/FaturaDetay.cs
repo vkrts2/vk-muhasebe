@@ -7,8 +7,11 @@ namespace ErmayMuhasebe.Models
     {
         [PrimaryKey, AutoIncrement]
         public int Id { get; set; }
+        
+        [Indexed]
         public int FaturaId { get; set; }
         
+        [Indexed]
         public int StokId { get; set; }
         public string? StokKodu { get; set; }
         public string? StokAdi { get; set; }

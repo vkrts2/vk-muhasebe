@@ -40,6 +40,7 @@ namespace ErmayMuhasebe.Models
         private decimal _kalanMiktar;
         public decimal KalanMiktar { get => _kalanMiktar; set { _kalanMiktar = value; OnPropertyChanged(); } }
 
+        [Indexed]
         public int? FaturaId { get; set; }
 
         [Ignore]

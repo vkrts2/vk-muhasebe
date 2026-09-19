@@ -79,9 +79,46 @@ public class SiparisRepository : BaseRepository<Siparis>, ISiparisRepository
     public async Task<List<SiparisDetay>> GetDetaylarAsync(int siparisId)
     {
         var db = await GetConnectionAsync();
-        return await db.Table<SiparisDetay>()
+        var details = await db.Table<SiparisDetay>()
             .Where(d => d.SiparisId == siparisId)
             .ToListAsync();
+
+        if ((details == null || details.Count == 0) && siparisId > 0)
+        {
+            try
+            {
+                var siparis = await db.Table<Siparis>().FirstOrDefaultAsync(s => s.Id == siparisId);
+                if (siparis != null && !string.IsNullOrWhiteSpace(siparis.SiparisNo))
+                {
+                    var otherSiparisler = await db.Table<Siparis>()
+                        .Where(s => s.SiparisNo == siparis.SiparisNo && s.Id != siparisId)
+                        .ToListAsync();
+
+                    foreach (var other in otherSiparisler)
+                    {
+                        var otherDetails = await db.Table<SiparisDetay>()
+                            .Where(d => d.SiparisId == other.Id)
+                            .ToListAsync();
+
+                        if (otherDetails != null && otherDetails.Count > 0)
+                        {
+                            foreach (var od in otherDetails)
+                            {
+                                od.SiparisId = siparisId;
+                                await db.UpdateAsync(od);
+                            }
+                            return otherDetails;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SiparisRepository] GetDetaylarAsync self-healing error: {ex.Message}");
+            }
+        }
+
+        return details ?? new List<SiparisDetay>();
     }
 
     public async Task<List<SiparisDetay>> GetAllDetaylarAsync()

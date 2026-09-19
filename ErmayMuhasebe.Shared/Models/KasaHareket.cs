@@ -20,6 +20,9 @@ namespace ErmayMuhasebe.Models
         public string? IslemTuru { get; set; } 
         
         [Indexed]
+        public int? FaturaId { get; set; }
+        
+        [Indexed]
         public string? RefId { get; set; }
         [Indexed]
         public int? YonlendirilenCariId { get; set; }

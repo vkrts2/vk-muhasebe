@@ -146,7 +146,8 @@ export default function AyarlarScreen() {
         if (clean) {
           await AsyncStorage.setItem('ermay_cached_company_logo', clean);
           resetPdfServiceCache();
-          // Anında Firebase'e ve masaüstüne canlı yansıt
+          // Supabase ve masaüstü ile anında senkronize et
+          await writeData('firma_profili/1', { id: 1, logo_base64: clean });
           await writeData('FirmaProfili/1/logoBase64', clean);
           await writeData('FirmaProfili/1/LogoBase64', clean);
           await writeData('companies/default/FirmaProfili/1/logoBase64', clean);
@@ -226,6 +227,7 @@ export default function AyarlarScreen() {
         logoAcilisBakiye,
         LogoAcilisBakiye: logoAcilisBakiye,
       };
+      await writeData('firma_profili/1', profilePayload);
       const ok = await writeData('FirmaProfili/1', profilePayload);
       if (!ok) {
         Alert.alert('Hata', 'Ayarlar kaydedilemedi. (Bağlantı sorunu — kayıt sıraya alındı.)');

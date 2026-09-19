@@ -102,11 +102,15 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
 
     // --- 2. Kasa / Banka hareketi + hesap bakiyesi ---
     if (req.selectedHesap && req.selectedHesap.id !== undefined && req.selectedHesap.id !== null) {
+      const isKasa = req.selectedHesap.kartTuru === 'Kasa' || (req.selectedHesap as any).turu === 'Kasa' || req.selectedHesap.kartTuru === undefined;
+      const hesapTable = isKasa ? 'Kasalar' : 'Bankalar';
       const hesapKey = String(req.selectedHesap.id);
-      const hesapRef = await readData(`Bankalar/${hesapKey}`);
+      let hesapRef = await readData(`${hesapTable}/${hesapKey}`);
+      if (!hesapRef && isKasa) {
+        hesapRef = await readData(`Bankalar/${hesapKey}`);
+      }
       const prevHesap = hesapRef ? { ...hesapRef } : null;
-      const hesap = hesapRef || { id: req.selectedHesap.id, hesapAdi: 'Kasa', kartTuru: req.selectedHesap.kartTuru || 'Kasa', bakiye: 0 };
-      const isKasa = hesap.kartTuru === 'Kasa';
+      const hesap = hesapRef || { id: req.selectedHesap.id, hesapAdi: isKasa ? 'Kasa' : 'Banka', kartTuru: isKasa ? 'Kasa' : 'Banka', bakiye: 0 };
 
       const hareketId = generateInt32Id();
       const hareket = {
@@ -132,9 +136,9 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
 
       const hesapBakiye = (hesap.bakiye || 0) + (hareket.giren - hareket.cikan);
       const hesapPayload = { ...hesap, kartTuru: isKasa ? 'Kasa' : hesap.kartTuru, bakiye: hesapBakiye };
-      await mustWrite(`Bankalar/${hesapKey}`, hesapPayload);
-      written.push(`Bankalar/${hesapKey}`);
-      if (prevHesap) rollback.push(async () => { await writeData(`Bankalar/${hesapKey}`, prevHesap); });
+      await mustWrite(`${hesapTable}/${hesapKey}`, hesapPayload);
+      written.push(`${hesapTable}/${hesapKey}`);
+      if (prevHesap) rollback.push(async () => { await writeData(`${hesapTable}/${hesapKey}`, prevHesap); });
 
       // --- 3. Kredi Kartı / EFT detay tabloları ---
       if (req.method.includes('Kredi')) {
@@ -211,11 +215,15 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
       await mustWrite(`CariHareketler/${supChKey}`, supCH);
       written.push(`CariHareketler/${supChKey}`);
 
+      const isKasa = req.selectedHesap.kartTuru === 'Kasa' || (req.selectedHesap as any).turu === 'Kasa' || req.selectedHesap.kartTuru === undefined;
+      const hesapTable = isKasa ? 'Kasalar' : 'Bankalar';
       const hesapKey = String(req.selectedHesap.id);
-      const hesapRef = await readData(`Bankalar/${hesapKey}`);
+      let hesapRef = await readData(`${hesapTable}/${hesapKey}`);
+      if (!hesapRef && isKasa) {
+        hesapRef = await readData(`Bankalar/${hesapKey}`);
+      }
       const prevHesap = hesapRef ? { ...hesapRef } : null;
-      const hesap = hesapRef || { id: req.selectedHesap.id, hesapAdi: 'Kasa', kartTuru: req.selectedHesap.kartTuru || 'Kasa', bakiye: 0 };
-      const isKasa = hesap.kartTuru === 'Kasa';
+      const hesap = hesapRef || { id: req.selectedHesap.id, hesapAdi: isKasa ? 'Kasa' : 'Banka', kartTuru: isKasa ? 'Kasa' : 'Banka', bakiye: 0 };
       const ciroHareketId = generateInt32Id();
       const ciroHareket = {
         id: ciroHareketId,
@@ -237,9 +245,9 @@ export const saveFinancialTransaction = async (req: FinancialTransactionRequest)
       written.push(`${ciroPath}/${ciroKey}`);
 
       const ciroPayload = { ...hesap, bakiye: (hesap.bakiye || 0) - req.amount };
-      await mustWrite(`Bankalar/${hesapKey}`, ciroPayload);
-      written.push(`Bankalar/${hesapKey}`);
-      if (prevHesap) rollback.push(async () => { await writeData(`Bankalar/${hesapKey}`, prevHesap); });
+      await mustWrite(`${hesapTable}/${hesapKey}`, ciroPayload);
+      written.push(`${hesapTable}/${hesapKey}`);
+      if (prevHesap) rollback.push(async () => { await writeData(`${hesapTable}/${hesapKey}`, prevHesap); });
     }
 
     return true;

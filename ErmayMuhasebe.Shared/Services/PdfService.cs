@@ -167,13 +167,13 @@ namespace ErmayMuhasebe.Services
         { 
             get 
             {
-                if (_isLogoLoaded) return (_logoBytes != null && _logoBytes.Length > 0) ? _logoBytes : null;
+                if (_logoBytes != null && _logoBytes.Length > 0) return _logoBytes;
                 return LoadLogoBytes();
             }
             set 
             { 
-                _logoBytes = value ?? new byte[0]; 
-                _isLogoLoaded = true; 
+                _logoBytes = value; 
+                _isLogoLoaded = (value != null && value.Length > 0); 
             } 
         }
 
@@ -3386,10 +3386,10 @@ namespace ErmayMuhasebe.Services
 
         protected byte[]? LoadLogoBytes()
         {
-            // 1. Eğer daha önce yüklendiyse veya kullanıcı tarafından açıkça atandıysa doğrudan döndür
-            if (_isLogoLoaded)
+            // 1. Eğer bellekte geçerli bir logo varsa hemen döndür
+            if (_logoBytes != null && _logoBytes.Length > 0)
             {
-                return (_logoBytes != null && _logoBytes.Length > 0) ? _logoBytes : null;
+                return _logoBytes;
             }
 
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -3442,8 +3442,6 @@ namespace ErmayMuhasebe.Services
             }
             catch { }
 
-            _logoBytes = new byte[0];
-            _isLogoLoaded = true;
             return null;
         }
 

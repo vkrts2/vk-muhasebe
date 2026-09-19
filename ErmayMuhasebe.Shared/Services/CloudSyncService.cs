@@ -37,7 +37,8 @@ namespace ErmayMuhasebe.Services
 
         public object? Client => this;
         public CloudConfig Config => _config;
-        public bool IsConnected => !string.IsNullOrEmpty(_config.BaseUrl) && !string.IsNullOrEmpty(_config.AuthSecret) && _config.IsActive;
+        public static bool DisableCloudSync { get; set; } = false;
+        public bool IsConnected => !DisableCloudSync && !string.IsNullOrEmpty(_config.BaseUrl) && !string.IsNullOrEmpty(_config.AuthSecret) && _config.IsActive;
         public string BaseUrl => _config.BaseUrl;
         public string AuthSecret => _config.AuthSecret;
         public bool IsAutoSyncEnabled => _config.IsAutoSyncEnabled;
@@ -73,6 +74,19 @@ namespace ErmayMuhasebe.Services
             return resourceName;
         }
 
+        public static string CleanSupabaseUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string clean = url.Trim();
+            while (clean.EndsWith("/")) clean = clean.Substring(0, clean.Length - 1);
+            if (clean.EndsWith("/rest/v1", StringComparison.OrdinalIgnoreCase))
+                clean = clean.Substring(0, clean.Length - "/rest/v1".Length);
+            while (clean.EndsWith("/")) clean = clean.Substring(0, clean.Length - 1);
+            return clean;
+        }
+
+        public string GetCleanBaseUrl() => CleanSupabaseUrl(_config.BaseUrl);
+
         private void LoadConfig()
         {
             try
@@ -90,6 +104,7 @@ namespace ErmayMuhasebe.Services
                         }
                         else
                         {
+                            loaded.BaseUrl = CleanSupabaseUrl(loaded.BaseUrl);
                             _config = loaded;
                             _config.IsActive = true;
                         }
@@ -109,9 +124,9 @@ namespace ErmayMuhasebe.Services
 
         public void SaveConfig(string url, string secret)
         {
-            _config.BaseUrl = url;
-            _config.AuthSecret = secret;
-            _config.IsActive = !string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(secret);
+            _config.BaseUrl = CleanSupabaseUrl(url);
+            _config.AuthSecret = secret?.Trim() ?? "";
+            _config.IsActive = !string.IsNullOrEmpty(_config.BaseUrl) && !string.IsNullOrEmpty(_config.AuthSecret);
             
             try
             {
@@ -126,7 +141,7 @@ namespace ErmayMuhasebe.Services
 
         private HttpRequestMessage CreateRequest(HttpMethod method, string pathAndQuery)
         {
-            string cleanBase = _config.BaseUrl.TrimEnd('/');
+            string cleanBase = GetCleanBaseUrl();
             string url = $"{cleanBase}/rest/v1/{pathAndQuery.TrimStart('/')}";
             var req = new HttpRequestMessage(method, url);
             req.Headers.Add("apikey", _config.AuthSecret);
@@ -355,7 +370,8 @@ namespace ErmayMuhasebe.Services
             ["vade_gun"] = c.VadeGunu,
             ["grup"] = c.Grup,
             ["is_active"] = true,
-            ["is_deleted"] = c.IsDeleted
+            ["is_deleted"] = c.IsDeleted,
+            ["guncelleme_tarihi"] = c.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
         };
 
         private static CariKart MapPayloadToCari(JsonElement el)
@@ -385,6 +401,9 @@ namespace ErmayMuhasebe.Services
             else if (el.TryGetProperty("alacak", out var alc)) c.Alacak = ParseDecimal(alc);
             if (el.TryGetProperty("grup", out var grp) && grp.ValueKind == JsonValueKind.String) c.Grup = grp.GetString();
             if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) c.IsDeleted = true;
+            if (el.TryGetProperty("guncelleme_tarihi", out var gt) && gt.ValueKind == JsonValueKind.String && DateTime.TryParse(gt.GetString(), out var dtGt)) c.UpdatedAt = dtGt;
+            else if (el.TryGetProperty("updated_at", out var ua) && ua.ValueKind == JsonValueKind.String && DateTime.TryParse(ua.GetString(), out var dtUa)) c.UpdatedAt = dtUa;
+            if (el.TryGetProperty("version", out var vr)) c.Version = ParseInt(vr, 1);
             return c;
         }
 
@@ -406,7 +425,8 @@ namespace ErmayMuhasebe.Services
             ["kritik_stok"] = (decimal)s.MinSeviye,
             ["aciklama"] = s.Aciklama,
             ["is_active"] = true,
-            ["is_deleted"] = s.IsDeleted
+            ["is_deleted"] = s.IsDeleted,
+            ["guncelleme_tarihi"] = s.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
         };
 
         private static StokKart MapPayloadToStok(JsonElement el)
@@ -428,6 +448,9 @@ namespace ErmayMuhasebe.Services
             else if (el.TryGetProperty("kritik_stok", out var kst)) s.MinSeviye = ParseDouble(kst);
             if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) s.Aciklama = ac.GetString();
             if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) s.IsDeleted = true;
+            if (el.TryGetProperty("guncelleme_tarihi", out var gt) && gt.ValueKind == JsonValueKind.String && DateTime.TryParse(gt.GetString(), out var dtGt)) s.UpdatedAt = dtGt;
+            else if (el.TryGetProperty("updated_at", out var ua) && ua.ValueKind == JsonValueKind.String && DateTime.TryParse(ua.GetString(), out var dtUa)) s.UpdatedAt = dtUa;
+            if (el.TryGetProperty("version", out var vr)) s.Version = ParseInt(vr, 1);
             return s;
         }
 
@@ -444,13 +467,9 @@ namespace ErmayMuhasebe.Services
             ["kdv_toplam"] = f.KdvToplam,
             ["iskonto_toplam"] = 0m,
             ["genel_toplam"] = f.GenelToplam,
-            ["kalan_tutar"] = f.Kalan,
-            ["durum"] = f.Odenen >= f.GenelToplam && f.GenelToplam > 0 ? "Ödendi" : (f.Odenen > 0 ? "Kısmi" : "Ödenmedi"),
             ["aciklama"] = f.Aciklama,
-            ["is_kapali"] = f.Odenen >= f.GenelToplam && f.GenelToplam > 0,
-            ["kasa_id"] = f.KasaId?.ToString(),
-            ["banka_id"] = f.BankaId?.ToString(),
-            ["is_deleted"] = f.IsDeleted
+            ["is_deleted"] = f.IsDeleted,
+            ["guncelleme_tarihi"] = f.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
         };
 
         private static Fatura MapPayloadToFatura(JsonElement el)
@@ -471,6 +490,9 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("kasa_id", out var ki)) f.KasaId = ParseNullableInt(ki);
             if (el.TryGetProperty("banka_id", out var bi)) f.BankaId = ParseNullableInt(bi);
             if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) f.IsDeleted = true;
+            if (el.TryGetProperty("guncelleme_tarihi", out var gTrh) && gTrh.ValueKind == JsonValueKind.String && DateTime.TryParse(gTrh.GetString(), out var dtGt)) f.UpdatedAt = dtGt;
+            else if (el.TryGetProperty("updated_at", out var ua) && ua.ValueKind == JsonValueKind.String && DateTime.TryParse(ua.GetString(), out var dtUa)) f.UpdatedAt = dtUa;
+            if (el.TryGetProperty("version", out var vr)) f.Version = ParseInt(vr, 1);
             return f;
         }
 
@@ -617,12 +639,10 @@ namespace ErmayMuhasebe.Services
             ["banka_id"] = bh.BankaId.ToString(),
             ["tarih"] = bh.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["hareket_turu"] = bh.IslemTuru ?? "",
-            ["islem_turu"] = bh.IslemTuru ?? "",
             ["evrak_no"] = bh.EvrakNo ?? "",
             ["aciklama"] = bh.Aciklama ?? "",
             ["yatan"] = bh.Giren,
             ["ceken"] = bh.Cikan,
-            ["tutar"] = bh.Giren > 0 ? bh.Giren : bh.Cikan,
             ["cari_id"] = bh.CariId?.ToString(),
             ["is_deleted"] = false
         };
@@ -649,12 +669,10 @@ namespace ErmayMuhasebe.Services
             ["kasa_id"] = kh.KasaId.ToString(),
             ["tarih"] = kh.Tarih.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["hareket_turu"] = kh.IslemTuru ?? "",
-            ["islem_turu"] = kh.IslemTuru ?? "",
             ["evrak_no"] = kh.EvrakNo ?? "",
             ["aciklama"] = kh.Aciklama ?? "",
             ["gelir"] = kh.Giren,
             ["gider"] = kh.Cikan,
-            ["tutar"] = kh.Giren > 0 ? kh.Giren : kh.Cikan,
             ["cari_id"] = kh.CariId?.ToString(),
             ["is_deleted"] = false
         };
@@ -1078,26 +1096,15 @@ namespace ErmayMuhasebe.Services
         {
             var payload = new Dictionary<string, object?>
             {
-                ["id"] = "1",
-                ["firma_adi"] = profil.FirmaAdi ?? "",
+                ["id"] = 1,
                 ["unvan"] = profil.FirmaAdi ?? "",
                 ["vergi_dairesi"] = profil.VergiDairesi,
                 ["vergi_no"] = profil.VergiNo,
                 ["adres"] = profil.Adres,
                 ["telefon"] = profil.Telefon,
                 ["email"] = profil.Eposta,
-                ["eposta"] = profil.Eposta,
-                ["web"] = profil.WebSitesi,
                 ["web_sitesi"] = profil.WebSitesi,
-                ["logo_base64"] = profil.LogoBase64,
-                ["cloud_pdf_api_url"] = profil.CloudPdfApiUrl,
-                ["cloud_pdf_api_key"] = profil.CloudPdfApiKey,
-                ["smtp_host"] = profil.SmtpHost,
-                ["smtp_port"] = profil.SmtpPort,
-                ["smtp_user"] = profil.SmtpUser,
-                ["smtp_pass"] = profil.SmtpPass,
-                ["smtp_ssl"] = profil.SmtpSsl,
-                ["factory_reset_password"] = profil.FactoryResetPassword
+                ["logo_base64"] = profil.LogoBase64
             };
             await UpsertPayloadAsync("firma_profili", payload);
         }
@@ -1178,7 +1185,7 @@ namespace ErmayMuhasebe.Services
                 // 1. Supabase Auth Signup API
                 try
                 {
-                    string cleanBase = _config.BaseUrl.TrimEnd('/');
+                    string cleanBase = GetCleanBaseUrl();
                     string authUrl = $"{cleanBase}/auth/v1/signup";
                     using var authReq = new HttpRequestMessage(HttpMethod.Post, authUrl);
                     authReq.Headers.Add("apikey", _config.AuthSecret);
@@ -1212,7 +1219,7 @@ namespace ErmayMuhasebe.Services
                     ["username"] = cleanUser.ToLower(),
                     ["kullanici_adi"] = cleanUser.ToLower(),
                     ["password_hash"] = hash,
-                    ["sifre"] = cleanPass,
+                    ["sifre"] = hash, // Güvenlik: Düz metin şifre yerine hash saklanıyor
                     ["password_salt"] = salt,
                     ["email"] = userEmail,
                     ["role"] = "Admin",

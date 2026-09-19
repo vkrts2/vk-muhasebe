@@ -306,9 +306,47 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
     public async Task<List<FaturaDetay>> GetDetaylarAsync(int faturaId)
     {
         var db = await GetConnectionAsync();
-        return await db.Table<FaturaDetay>()
+        var details = await db.Table<FaturaDetay>()
             .Where(d => d.FaturaId == faturaId)
             .ToListAsync();
+
+        if ((details == null || details.Count == 0) && faturaId > 0)
+        {
+            try
+            {
+                var fatura = await db.Table<Fatura>().FirstOrDefaultAsync(f => f.Id == faturaId);
+                if (fatura != null && !string.IsNullOrWhiteSpace(fatura.FaturaNo))
+                {
+                    // Aynı numaraya sahip diğer faturalarda detay var mı?
+                    var otherFaturalar = await db.Table<Fatura>()
+                        .Where(f => f.FaturaNo == fatura.FaturaNo && f.Id != faturaId)
+                        .ToListAsync();
+
+                    foreach (var other in otherFaturalar)
+                    {
+                        var otherDetails = await db.Table<FaturaDetay>()
+                            .Where(d => d.FaturaId == other.Id)
+                            .ToListAsync();
+
+                        if (otherDetails != null && otherDetails.Count > 0)
+                        {
+                            foreach (var od in otherDetails)
+                            {
+                                od.FaturaId = faturaId;
+                                await db.UpdateAsync(od);
+                            }
+                            return otherDetails;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FaturaRepository] GetDetaylarAsync self-healing error: {ex.Message}");
+            }
+        }
+
+        return details ?? new List<FaturaDetay>();
     }
 
     public async Task<List<FaturaDetay>> GetAllDetaylarAsync()
@@ -482,44 +520,72 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
             }
             
             string curTur = (fatura.Tur ?? "").Trim();
-            bool currentIsSatis = curTur.Contains("Satış", System.StringComparison.OrdinalIgnoreCase) || 
-                                  curTur.Contains("Satis", System.StringComparison.OrdinalIgnoreCase);
+            bool isSatisIade = curTur.Contains("Satış İade", System.StringComparison.OrdinalIgnoreCase) || 
+                               curTur.Contains("Satis Iade", System.StringComparison.OrdinalIgnoreCase);
+            bool isAlisIade = curTur.Contains("Alış İade", System.StringComparison.OrdinalIgnoreCase) || 
+                              curTur.Contains("Alis Iade", System.StringComparison.OrdinalIgnoreCase);
+            bool currentIsSatis = !isAlisIade && !isSatisIade && (curTur.Contains("Satış", System.StringComparison.OrdinalIgnoreCase) || 
+                                  curTur.Contains("Satis", System.StringComparison.OrdinalIgnoreCase));
+
+            bool isStockInflow = isAlisIade ? false : (isSatisIade ? true : (!currentIsSatis));
+            bool isCariBorc = isSatisIade ? false : (isAlisIade ? true : currentIsSatis);
+
+            string stokIslemTuru = isSatisIade ? "Satış İade Faturası" : (isAlisIade ? "Alış İade Faturası" : (currentIsSatis ? "Satış Faturası" : "Alış Faturası"));
+            string cariIslemTuru = stokIslemTuru;
 
             // Automated Payment Movement
             if (fatura.OdemeSekli == "Nakit" && fatura.KasaId.HasValue && fatura.KasaId > 0)
             {
+                bool isKasaGiris = isSatisIade ? false : (isAlisIade ? true : currentIsSatis);
                 var kasaHareket = new KasaHareket
                 {
                     KasaId = fatura.KasaId.Value,
+                    FaturaId = fatura.Id,
                     Tarih = fatura.Tarih,
                     EvrakNo = fatura.FaturaNo,
                     CariId = fatura.CariId,
                     CariUnvan = fatura.CariUnvan,
-                    IslemTuru = currentIsSatis ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
-                    Aciklama = $"Fatura No: {fatura.FaturaNo} Peşin Ödeme",
-                    Giren = currentIsSatis ? fatura.GenelToplam : 0,
-                    Cikan = !currentIsSatis ? fatura.GenelToplam : 0,
+                    IslemTuru = isKasaGiris ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
+                    Aciklama = $"Fatura No: {fatura.FaturaNo} Peşin Nakit",
+                    Giren = isKasaGiris ? fatura.GenelToplam : 0,
+                    Cikan = !isKasaGiris ? fatura.GenelToplam : 0,
                     TenantId = fatura.TenantId
                 };
                 tran.Insert(kasaHareket);
+
+                var dbKasa = tran.Find<BankaKart>(fatura.KasaId.Value);
+                if (dbKasa != null)
+                {
+                    dbKasa.Bakiye += (kasaHareket.Giren - kasaHareket.Cikan);
+                    tran.Update(dbKasa);
+                }
             }
-            else if (fatura.OdemeSekli == "Kredi Kartı" && fatura.BankaId.HasValue && fatura.BankaId > 0)
+            else if ((fatura.OdemeSekli == "Kredi Kartı" || fatura.OdemeSekli == "Banka Havalesi" || fatura.OdemeSekli == "Banka") && fatura.BankaId.HasValue && fatura.BankaId > 0)
             {
+                bool isBankaGiris = isSatisIade ? false : (isAlisIade ? true : currentIsSatis);
                 var bankaHareket = new BankaHareket
                 {
                     BankaId = fatura.BankaId.Value,
+                    FaturaId = fatura.Id,
                     Tarih = fatura.Tarih,
                     EvrakNo = fatura.FaturaNo,
                     CariId = fatura.CariId,
                     CariUnvan = fatura.CariUnvan,
-                    IslemTuru = currentIsSatis ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
-                    Aciklama = $"Fatura No: {fatura.FaturaNo} Kredi Kartı",
-                    Giren = currentIsSatis ? fatura.GenelToplam : 0,
-                    Cikan = !currentIsSatis ? fatura.GenelToplam : 0,
+                    IslemTuru = isBankaGiris ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
+                    Aciklama = $"Fatura No: {fatura.FaturaNo} {fatura.OdemeSekli}",
+                    Giren = isBankaGiris ? fatura.GenelToplam : 0,
+                    Cikan = !isBankaGiris ? fatura.GenelToplam : 0,
                     Tutar = fatura.GenelToplam,
                     TenantId = fatura.TenantId
                 };
                 tran.Insert(bankaHareket);
+
+                var dbBanka = tran.Find<BankaKart>(fatura.BankaId.Value);
+                if (dbBanka != null)
+                {
+                    dbBanka.Bakiye += (bankaHareket.Giren - bankaHareket.Cikan);
+                    tran.Update(dbBanka);
+                }
             }
 
             foreach(var d in detaylar)
@@ -533,13 +599,13 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                     StokKodu = d.StokKodu ?? "",
                     StokAdi = d.StokAdi ?? "",
                     Tarih = fatura.Tarih,
-                    IslemTuru = currentIsSatis ? "Satış Faturası" : "Alış Faturası",
+                    IslemTuru = stokIslemTuru,
                     EvrakNo = fatura.FaturaNo,
                     FaturaId = fatura.Id,
                     Miktar = (decimal)d.Miktar,
-                    Fiyat = d.BirimFiyat, // CRITICAL FIX: Transfer price to movement
-                    Giren = currentIsSatis ? 0 : (decimal)d.Miktar,
-                    Cikan = currentIsSatis ? (decimal)d.Miktar : 0,
+                    Fiyat = d.BirimFiyat,
+                    Giren = isStockInflow ? (decimal)d.Miktar : 0,
+                    Cikan = !isStockInflow ? (decimal)d.Miktar : 0,
                     Aciklama = $"Fatura No: {fatura.FaturaNo}",
                     TenantId = fatura.TenantId // Assuming TenantId exists on Fatura
                 };
@@ -551,8 +617,8 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                     var stok = tran.Find<StokKart>(d.StokId);
                     if(stok != null)
                     {
-                        if(currentIsSatis) stok.Miktar -= d.Miktar;
-                        else stok.Miktar += d.Miktar;
+                        if(isStockInflow) stok.Miktar += d.Miktar;
+                        else stok.Miktar -= d.Miktar;
 
                         if (updateStokPrices)
                         {
@@ -569,7 +635,7 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                 var cr = tran.Find<CariKart>(fatura.CariId);
                 if (cr != null)
                 {
-                    if (currentIsSatis) cr.Borc += fatura.GenelToplam;
+                    if (isCariBorc) cr.Borc += fatura.GenelToplam;
                     else cr.Alacak += fatura.GenelToplam;
                     tran.Update(cr);
 
@@ -604,9 +670,9 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
                             CariId = fatura.CariId,
                             CariUnvan = fatura.CariUnvan,
                             Tarih = fatura.Tarih,
-                            IslemTuru = currentIsSatis ? "Satış Faturası" : "Alış Faturası",
-                            Borc = currentIsSatis ? fatura.GenelToplam : 0,
-                            Alacak = !currentIsSatis ? fatura.GenelToplam : 0,
+                            IslemTuru = cariIslemTuru,
+                            Borc = isCariBorc ? fatura.GenelToplam : 0,
+                            Alacak = !isCariBorc ? fatura.GenelToplam : 0,
                             Aciklama = $"Fatura No: {fatura.FaturaNo}",
                             EvrakNo = fatura.FaturaNo,
                             FaturaId = fatura.Id,

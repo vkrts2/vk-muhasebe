@@ -27,6 +27,9 @@ namespace ErmayMuhasebe.Models
         [Indexed]
         public int? CariId { get; set; } // Added CariId to link with customer
         [Indexed]
+        public int? FaturaId { get; set; }
+        
+        [Indexed]
         public string? RefId { get; set; }
         
         public decimal Giren { get; set; }
