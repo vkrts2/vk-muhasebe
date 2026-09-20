@@ -680,6 +680,16 @@ export default function RaporlarScreen() {
           }]
         }
       };
+    } else if (reportTitle === 'Finansal Isı Haritası') {
+      pdfConfig = {
+        endpoint: 'generic',
+        payload: {
+          title: 'FİNANSAL ISI HARİTASI (SON 30 GÜN)',
+          subtitle: 'Günlük Gelir/Gider ve Net Nakit Akış Dağılımı',
+          headers: headers,
+          rows: rows
+        }
+      };
     } else if (reportTitle === 'Bütçe / Hedef Takibi') {
       const budgetGraph = getBudgetData();
       pdfConfig = {

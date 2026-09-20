@@ -15,7 +15,7 @@ public class CloudSyncMigrationTests
         _output = output;
     }
 
-    [Fact]
+    [Fact(Skip = "Manual Migration Script - do not run in CI/automated suite")]
     public async Task MigrateActualDesktopDbToSupabase()
     {
         string actualDb = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe", "ErmayV4_Stable.db3");
@@ -90,8 +90,8 @@ public class CloudSyncMigrationTests
         Assert.Equal("İstanbul", pulled.Il);
 
         var pulledHareketler = await dbService.GetCariHareketlerAsync(9999);
-        Assert.NotEmpty(pulledHareketler);
         _output.WriteLine($"Pulled {pulledHareketler.Count} hareketler for cari 9999.");
+        Assert.NotEmpty(pulledHareketler);
 
         // 3. Clean up test records
         await dbService.DeleteCariKartAsync(pulled);
@@ -100,7 +100,7 @@ public class CloudSyncMigrationTests
         _output.WriteLine("Cleaned up test records successfully.");
     }
 
-    [Fact]
+    [Fact(Skip = "Diagnostic Script for specific invoice FTR-381497")]
     public async Task CheckInvoiceFtr381497Details()
     {
         string actualDb = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe", "ErmayV4_Stable.db3");

@@ -131,86 +131,93 @@ public partial class LoginViewModel : ViewModelBase
                 {
                     var doc = System.Text.Json.JsonDocument.Parse(jsonToProcess);
                     
-                    var conn = _dbService.GetGlobalConnection();
-                    conn.CreateTableAsync<Models.User>().GetAwaiter().GetResult();
-
-                    if (doc.RootElement.TryGetProperty("Users", out var usersArray))
+                    _ = Task.Run(async () =>
                     {
-                        bool hasCustomUser = false;
-                        foreach (var userElem in usersArray.EnumerateArray())
+                        try
                         {
-                            var uName = userElem.GetProperty("Username").GetString()?.Trim();
-                            var uPass = userElem.GetProperty("Password").GetString()?.Trim();
-                            var uEmail = userElem.TryGetProperty("Email", out var emElem) ? emElem.GetString()?.Trim() : null;
+                            var conn = _dbService.GetGlobalConnection();
+                            await conn.CreateTableAsync<Models.User>();
 
-                            if (!string.IsNullOrEmpty(uName) && !string.IsNullOrEmpty(uPass))
+                            if (doc.RootElement.TryGetProperty("Users", out var usersArray))
                             {
-                                var existing = conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == uName.ToLower()).GetAwaiter().GetResult();
-                                var salt = AuthService.GenerateSalt();
-                                var hash = AuthService.HashPassword(uPass, salt);
+                                bool hasCustomUser = false;
+                                foreach (var userElem in usersArray.EnumerateArray())
+                                {
+                                    var uName = userElem.GetProperty("Username").GetString()?.Trim();
+                                    var uPass = userElem.GetProperty("Password").GetString()?.Trim();
+                                    var uEmail = userElem.TryGetProperty("Email", out var emElem) ? emElem.GetString()?.Trim() : null;
 
-                                if (existing != null)
-                                {
-                                    existing.Password = hash;
-                                    existing.PasswordSalt = salt;
-                                    if (!string.IsNullOrEmpty(uEmail)) existing.Email = uEmail;
-                                    conn.UpdateAsync(existing).GetAwaiter().GetResult();
-                                    var currentUName = uName;
-                                    var currentUPass = uPass;
-                                    var currentUEmail = uEmail;
-                                    _ = Task.Run(async () =>
+                                    if (!string.IsNullOrEmpty(uName) && !string.IsNullOrEmpty(uPass))
                                     {
-                                        try 
-                                        { 
-                                            await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
-                                            await _dbService.SyncService.SyncUserAsync(existing); 
+                                        var existing = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == uName.ToLower());
+                                        var salt = AuthService.GenerateSalt();
+                                        var hash = AuthService.HashPassword(uPass, salt);
+
+                                        if (existing != null)
+                                        {
+                                            existing.Password = hash;
+                                            existing.PasswordSalt = salt;
+                                            if (!string.IsNullOrEmpty(uEmail)) existing.Email = uEmail;
+                                            await conn.UpdateAsync(existing);
+                                            var currentUName = uName;
+                                            var currentUPass = uPass;
+                                            var currentUEmail = uEmail;
+                                            _ = Task.Run(async () =>
+                                            {
+                                                try 
+                                                { 
+                                                    await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
+                                                    await _dbService.SyncService.SyncUserAsync(existing); 
+                                                }
+                                                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
+                                            });
                                         }
-                                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
-                                    });
-                                }
-                                else
-                                {
-                                    var nu = new Models.User
-                                    {
-                                        Username = uName.ToLower(),
-                                        Password = hash,
-                                        PasswordSalt = salt,
-                                        Email = uEmail,
-                                        Role = "Admin",
-                                        CreatedAt = DateTime.Now
-                                    };
-                                    conn.InsertAsync(nu).GetAwaiter().GetResult();
-                                    var currentUName = uName;
-                                    var currentUPass = uPass;
-                                    var currentUEmail = uEmail;
-                                    _ = Task.Run(async () =>
-                                    {
-                                        try 
-                                        { 
-                                            await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
-                                            await _dbService.SyncService.SyncUserAsync(nu); 
+                                        else
+                                        {
+                                            var nu = new Models.User
+                                            {
+                                                Username = uName.ToLower(),
+                                                Password = hash,
+                                                PasswordSalt = salt,
+                                                Email = uEmail,
+                                                Role = "Admin",
+                                                CreatedAt = DateTime.Now
+                                            };
+                                            await conn.InsertAsync(nu);
+                                            var currentUName = uName;
+                                            var currentUPass = uPass;
+                                            var currentUEmail = uEmail;
+                                            _ = Task.Run(async () =>
+                                            {
+                                                try 
+                                                { 
+                                                    await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
+                                                    await _dbService.SyncService.SyncUserAsync(nu); 
+                                                }
+                                                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
+                                            });
                                         }
-                                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
-                                    });
+
+                                        if (uName.ToLower() != "admin")
+                                        {
+                                            hasCustomUser = true;
+                                        }
+                                    }
                                 }
 
-                                if (uName.ToLower() != "admin")
+                                // Özel kullanıcılar girilmişse varsayılan admin/123 hesabını sil
+                                if (hasCustomUser)
                                 {
-                                    hasCustomUser = true;
+                                    var defaultAdmin = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == "admin");
+                                    if (defaultAdmin != null)
+                                    {
+                                        await conn.DeleteAsync(defaultAdmin);
+                                    }
                                 }
                             }
                         }
-
-                        // Özel kullanıcılar girilmişse varsayılan admin/123 hesabını sil
-                        if (hasCustomUser)
-                        {
-                            var defaultAdmin = conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == "admin").GetAwaiter().GetResult();
-                            if (defaultAdmin != null)
-                            {
-                                conn.DeleteAsync(defaultAdmin).GetAwaiter().GetResult();
-                            }
-                        }
-                    }
+                        catch { }
+                    });
 
                     // Fabrika Ayarları Sıfırlama Şifresi, SMTP ve Telegram Yapılandırması
                     Task.Run(async () =>

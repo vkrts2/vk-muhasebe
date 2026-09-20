@@ -12,12 +12,15 @@ namespace ErmayMuhasebe.Services
 {
     public class CloudConfig
     {
-        public string BaseUrl { get; set; } = "";
-        public string AuthSecret { get; set; } = "";
+        public const string DefaultSupabaseUrl = "https://fqgbdymffknglqeqoogt.supabase.co";
+        public const string DefaultSupabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxZ2JkeW1mZmtuZ2xxZXFvb2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODUzMDEsImV4cCI6MjEwNTE2MTMwMX0.pBeE2ivWpbkAd8KSN1y2pXNZPIr_1mGMLXXHYPzjTDg";
+
+        public string BaseUrl { get; set; } = DefaultSupabaseUrl;
+        public string AuthSecret { get; set; } = DefaultSupabaseKey;
         public string GoogleApiKey { get; set; } = "";
         public string GoogleClientId { get; set; } = "";
         public string GoogleClientSecret { get; set; } = "";
-        public bool IsActive { get; set; } = false;
+        public bool IsActive { get; set; } = true;
         public bool IsAutoSyncEnabled { get; set; } = true;
     }
 
@@ -48,18 +51,33 @@ namespace ErmayMuhasebe.Services
             _config.IsActive = false;
         }
 
-        public void EnableAutoSync(bool enable)
+        private void SaveConfigInternal()
         {
-            _config.IsAutoSyncEnabled = enable;
             try
             {
-                var json = JsonSerializer.Serialize(_config);
+                var persistentConfig = new CloudConfig
+                {
+                    BaseUrl = _config.BaseUrl,
+                    AuthSecret = string.IsNullOrEmpty(_config.AuthSecret) ? "" : (AuthService.Encrypt(_config.AuthSecret) is { Length: > 0 } enc ? enc : _config.AuthSecret),
+                    GoogleApiKey = string.IsNullOrEmpty(_config.GoogleApiKey) ? "" : (AuthService.Encrypt(_config.GoogleApiKey) is { Length: > 0 } encG ? encG : _config.GoogleApiKey),
+                    GoogleClientId = _config.GoogleClientId,
+                    GoogleClientSecret = string.IsNullOrEmpty(_config.GoogleClientSecret) ? "" : (AuthService.Encrypt(_config.GoogleClientSecret) is { Length: > 0 } encS ? encS : _config.GoogleClientSecret),
+                    IsActive = _config.IsActive,
+                    IsAutoSyncEnabled = _config.IsAutoSyncEnabled
+                };
+                var json = JsonSerializer.Serialize(persistentConfig);
                 File.WriteAllText(_configPath, json);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error saving auto-sync config: {ex.Message}");
+                Console.WriteLine($"Error saving config: {ex.Message}");
             }
+        }
+
+        public void EnableAutoSync(bool enable)
+        {
+            _config.IsAutoSyncEnabled = enable;
+            SaveConfigInternal();
         }
 
         public CloudSyncService(IYearContext yearContext)
@@ -87,7 +105,9 @@ namespace ErmayMuhasebe.Services
 
         public string GetCleanBaseUrl() => CleanSupabaseUrl(_config.BaseUrl);
 
-        private void LoadConfig()
+        public void ReloadConfig() => LoadConfig();
+
+        public void LoadConfig()
         {
             try
             {
@@ -97,6 +117,13 @@ namespace ErmayMuhasebe.Services
                     var loaded = JsonSerializer.Deserialize<CloudConfig>(json);
                     if (loaded != null && !string.IsNullOrEmpty(loaded.BaseUrl) && !string.IsNullOrEmpty(loaded.AuthSecret))
                     {
+                        if (loaded.AuthSecret.StartsWith("ENC::AES::"))
+                            loaded.AuthSecret = AuthService.Decrypt(loaded.AuthSecret);
+                        if (!string.IsNullOrEmpty(loaded.GoogleApiKey) && loaded.GoogleApiKey.StartsWith("ENC::AES::"))
+                            loaded.GoogleApiKey = AuthService.Decrypt(loaded.GoogleApiKey);
+                        if (!string.IsNullOrEmpty(loaded.GoogleClientSecret) && loaded.GoogleClientSecret.StartsWith("ENC::AES::"))
+                            loaded.GoogleClientSecret = AuthService.Decrypt(loaded.GoogleClientSecret);
+
                         // Check if legacy Firebase URL is stored
                         if (loaded.BaseUrl.Contains("firebaseio.com") || !loaded.BaseUrl.Contains("supabase.co"))
                         {
@@ -127,16 +154,7 @@ namespace ErmayMuhasebe.Services
             _config.BaseUrl = CleanSupabaseUrl(url);
             _config.AuthSecret = secret?.Trim() ?? "";
             _config.IsActive = !string.IsNullOrEmpty(_config.BaseUrl) && !string.IsNullOrEmpty(_config.AuthSecret);
-            
-            try
-            {
-                var json = JsonSerializer.Serialize(_config);
-                File.WriteAllText(_configPath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Cloud Config Save Error: {ex.Message}");
-            }
+            SaveConfigInternal();
         }
 
         private HttpRequestMessage CreateRequest(HttpMethod method, string pathAndQuery)
@@ -544,7 +562,6 @@ namespace ErmayMuhasebe.Services
             ["alacak"] = h.Alacak,
             ["bakiye"] = h.KalanBakiye,
             ["fatura_id"] = h.FaturaId?.ToString(),
-            ["vade_tarihi"] = h.Vade?.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["is_deleted"] = false
         };
 
@@ -1320,11 +1337,15 @@ namespace ErmayMuhasebe.Services
                 {
                     ["id"] = (user.Username ?? "").ToLower(),
                     ["username"] = (user.Username ?? "").ToLower(),
+                    ["kullanici_adi"] = (user.Username ?? "").ToLower(),
                     ["password_hash"] = user.Password ?? "",
+                    ["sifre"] = user.Password ?? "",
                     ["password_salt"] = user.PasswordSalt ?? "",
                     ["email"] = user.Email,
                     ["role"] = user.Role ?? "Admin",
-                    ["is_active"] = true
+                    ["rol"] = user.Role ?? "Admin",
+                    ["is_active"] = true,
+                    ["aktif_mi"] = true
                 };
                 await UpsertPayloadAsync("kullanicilar", userRow);
 
@@ -1437,37 +1458,57 @@ namespace ErmayMuhasebe.Services
         {
             if (!IsConnected) return;
 
-            // Delete all rows from every synced Supabase table
-            // Using id=gte.0 to match all records (Supabase requires a filter for DELETE)
+            // Delete rows in reverse dependency order (detail/child tables first, parent tables last)
+            // to satisfy foreign key constraints in PostgreSQL.
             var tablesToClear = new[]
             {
-                "cari_hareketler", "cariler",
-                "stok_hareketler", "stoklar",
-                "fatura_detaylar", "faturalar",
-                "siparis_detaylar", "siparisler",
-                "teklif_detaylar", "teklifler",
-                "banka_hareketler", "bankalar",
-                "kasa_hareketler", "kasalar",
-                "cekler", "senetler",
-                "kredi_karti_islemler", "eft_islemler",
-                "doviz_kurlari", "belge_arsiv",
-                "notlar", "gorevler", "personeller",
-                "satis_hedefleri", "haftalik_satis_hedefleri", "yillik_satis_hedefleri",
-                "stok_sayim_fisileri", "stok_sayim_detaylari",
+                "fatura_detaylar",
+                "siparis_detaylar",
+                "teklif_detaylar",
+                "stok_sayim_detaylari",
+                "musteri_takip_detaylar",
+                "cari_hareketler",
+                "stok_hareketler",
+                "banka_hareketler",
+                "kasa_hareketler",
+                "kredi_karti_islemler",
+                "eft_islemler",
+                "cekler",
+                "senetler",
+                "faturalar",
+                "siparisler",
+                "teklifler",
+                "stok_sayim_fisileri",
+                "musteri_takip_klasorler",
+                "stoklar",
+                "cariler",
+                "bankalar",
+                "kasalar",
+                "doviz_kurlari",
+                "belge_arsiv",
+                "notlar",
+                "gorevler",
+                "personeller",
+                "satis_hedefleri",
+                "haftalik_satis_hedefleri",
+                "yillik_satis_hedefleri",
                 "portfoy_kartlar",
-                "musteri_takip_klasorler", "musteri_takip_detaylar",
                 "firma_profili"
             };
 
-            foreach (var table in tablesToClear)
+            // Multi-pass deletion to ensure any indirect or circular foreign key dependencies are completely cleared
+            for (int pass = 1; pass <= 3; pass++)
             {
-                try
+                foreach (var table in tablesToClear)
                 {
-                    await DeleteFilteredAsync(table, "id=gte.0");
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CloudSync] ClearCloudTable '{table}' error: {ex.Message}");
+                    try
+                    {
+                        await DeleteFilteredAsync(table, "id=gte.0");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[CloudSync] ClearCloudTable '{table}' (Pass {pass}) error: {ex.Message}");
+                    }
                 }
             }
 

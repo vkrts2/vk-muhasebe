@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Share, Image, Switch } from 'react-native';
-import { Settings, Globe, Key, Calendar, Wifi, Save, Database, User, MapPin, Phone, Building, Lock, MonitorSmartphone, ArrowLeft, Trash2, Image as ImageIcon, UploadCloud } from 'lucide-react-native';
+import { Settings, Globe, Key, Calendar, Wifi, Save, Database, User, MapPin, Phone, Building, Lock, MonitorSmartphone, ArrowLeft, Trash2, Image as ImageIcon, UploadCloud, CheckSquare, Square, ArrowRight, Sparkles, RefreshCw } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '../services/storage';
 import { saveFirebaseConfig, saveActiveYear, getFirebaseConfig, loadConfigFromStorage, goOfflineMode, writeData, subscribeToPath, logoutUser, deleteData, readData, fetchAvailableYears } from '../services/firebase';
@@ -44,6 +44,15 @@ export default function AyarlarScreen() {
   const [lockHasPin, setLockHasPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [lockTimeout, setLockTimeoutState] = useState('30');
+  
+  // Yıl Devir Sihirbazı State
+  const [devirKaynakYil, setDevirKaynakYil] = useState((new Date().getFullYear() - 1).toString());
+  const [devirHedefYil, setDevirHedefYil] = useState(new Date().getFullYear().toString());
+  const [devirCariSecili, setDevirCariSecili] = useState(true);
+  const [devirKasaSecili, setDevirKasaSecili] = useState(true);
+  const [devirBankaSecili, setDevirBankaSecili] = useState(true);
+  const [devirStokSecili, setDevirStokSecili] = useState(true);
+  const [devirYukleniyor, setDevirYukleniyor] = useState(false);
 
   // Kategori Seçim State
   const [currentCategory, setCurrentCategory] = useState<string | null>(null);
@@ -491,6 +500,208 @@ export default function AyarlarScreen() {
     );
   };
 
+  const handleSwitchYear = async (newYear: string) => {
+    if (newYear === activeYear) return;
+    try {
+      setLoading(true);
+      await saveActiveYear(newYear);
+      setActiveYear(newYear);
+      Alert.alert('Başarılı', `Aktif çalışma yılı ${newYear} olarak değiştirildi. Tüm veriler yeni mali yıla göre yüklenecektir.`);
+    } catch (e) {
+      Alert.alert('Hata', 'Yıl değiştirilemedi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleYearTransfer = async () => {
+    if (!devirKaynakYil || !devirHedefYil) {
+      Alert.alert('Hata', 'Lütfen kaynak ve hedef yılları seçiniz.');
+      return;
+    }
+    if (devirKaynakYil === devirHedefYil) {
+      Alert.alert('Hata', 'Kaynak mali yıl ile hedef mali yıl aynı olamaz.');
+      return;
+    }
+
+    Alert.alert(
+      'Mali Yıl Devir Onayı',
+      `${devirKaynakYil} yılı kapanış bakiyeleri (Cari, Kasa, Banka, Stok) ${devirHedefYil} yılına Açılış Devir Fişi olarak aktarılacaktır. Devam etmek istiyor musunuz?`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Devret',
+          onPress: async () => {
+            setDevirYukleniyor(true);
+            try {
+              let aktarilanCari = 0;
+              let aktarilanKasa = 0;
+              let aktarilanBanka = 0;
+              let aktarilanStok = 0;
+
+              // 1. CARİ DEVİR
+              if (devirCariSecili) {
+                const carilerRaw = await readData('Cariler');
+                if (carilerRaw) {
+                  const cariList = Array.isArray(carilerRaw) ? carilerRaw.filter(Boolean) : Object.keys(carilerRaw).map(k => ({ ...carilerRaw[k], firebaseKey: k }));
+                  for (const c of cariList.filter(x => !x.isDeleted)) {
+                    const bakiye = (Number(c.borc) || 0) - (Number(c.alacak) || 0);
+                    if (bakiye !== 0) {
+                      const devirBorc = bakiye > 0 ? bakiye : 0;
+                      const devirAlacak = bakiye < 0 ? Math.abs(bakiye) : 0;
+                      
+                      // Hedef yılda cari kartı devir bakiyesiyle oluştur/güncelle
+                      await writeData(`Cariler/${c.id}`, {
+                        ...c,
+                        devirBorc,
+                        devirAlacak,
+                        borc: 0,
+                        alacak: 0,
+                        bakiye: bakiye
+                      });
+
+                      // Devir Fişi Hareketi
+                      await writeData(`CariHareketler/DEVIR_${c.id}_${devirHedefYil}`, {
+                        id: `DEVIR_${c.id}_${devirHedefYil}`,
+                        cariId: c.id,
+                        cariUnvan: c.unvan,
+                        islemTuru: 'Devir Fişi',
+                        evrakNo: `DEVIR-${devirKaynakYil}`,
+                        aciklama: `${devirKaynakYil} Yılı Kapanış Bakiye Devri`,
+                        borc: devirBorc,
+                        alacak: devirAlacak,
+                        bakiye: bakiye,
+                        tarih: `${devirHedefYil}-01-01T00:00:00.000Z`,
+                        isDeleted: false
+                      });
+                      aktarilanCari++;
+                    }
+                  }
+                }
+              }
+
+              // 2. KASA DEVİR
+              if (devirKasaSecili) {
+                const kasaRaw = await readData('KasaHareketler');
+                if (kasaRaw) {
+                  const kasaList = Array.isArray(kasaRaw) ? kasaRaw.filter(Boolean) : Object.keys(kasaRaw).map(k => ({ ...kasaRaw[k], firebaseKey: k }));
+                  const totalGiren = kasaList.reduce((s, h) => s + (Number(h.giren) || 0), 0);
+                  const totalCikan = kasaList.reduce((s, h) => s + (Number(h.cikan) || 0), 0);
+                  const netKasa = totalGiren - totalCikan;
+
+                  if (netKasa !== 0) {
+                    await writeData(`KasaHareketler/DEVIR_KASA_${devirHedefYil}`, {
+                      id: `DEVIR_KASA_${devirHedefYil}`,
+                      islemTuru: 'Devir Fişi',
+                      evrakNo: `DEVIR-KASA-${devirKaynakYil}`,
+                      aciklama: `${devirKaynakYil} Yılı Kasa Açılış Nakit Devri`,
+                      giren: netKasa > 0 ? netKasa : 0,
+                      cikan: netKasa < 0 ? Math.abs(netKasa) : 0,
+                      bakiye: netKasa,
+                      tarih: `${devirHedefYil}-01-01T00:00:00.000Z`,
+                      isDeleted: false
+                    });
+                    aktarilanKasa++;
+                  }
+                }
+              }
+
+              // 3. BANKA DEVİR
+              if (devirBankaSecili) {
+                const bankaRaw = await readData('Bankalar');
+                if (bankaRaw) {
+                  const bankaList = Array.isArray(bankaRaw) ? bankaRaw.filter(Boolean) : Object.keys(bankaRaw).map(k => ({ ...bankaRaw[k], firebaseKey: k }));
+                  for (const b of bankaList.filter(x => !x.isDeleted)) {
+                    const bakiye = Number(b.bakiye) || ((Number(b.giren) || 0) - (Number(b.cikan) || 0));
+                    if (bakiye !== 0) {
+                      await writeData(`BankaHareketler/DEVIR_BNK_${b.id}_${devirHedefYil}`, {
+                        id: `DEVIR_BNK_${b.id}_${devirHedefYil}`,
+                        bankaId: b.id,
+                        bankaAdi: b.bankaAdi || b.hesapAdi || 'Banka',
+                        islemTuru: 'Devir Fişi',
+                        evrakNo: `DEVIR-BNK-${devirKaynakYil}`,
+                        aciklama: `${devirKaynakYil} Yılı Banka Açılış Devri`,
+                        giren: bakiye > 0 ? bakiye : 0,
+                        cikan: bakiye < 0 ? Math.abs(bakiye) : 0,
+                        bakiye: bakiye,
+                        tarih: `${devirHedefYil}-01-01T00:00:00.000Z`,
+                        isDeleted: false
+                      });
+                      aktarilanBanka++;
+                    }
+                  }
+                }
+              }
+
+              // 4. STOK DEVİR
+              if (devirStokSecili) {
+                const stokRaw = await readData('Stoklar');
+                if (stokRaw) {
+                  const stokList = Array.isArray(stokRaw) ? stokRaw.filter(Boolean) : Object.keys(stokRaw).map(k => ({ ...stokRaw[k], firebaseKey: k }));
+                  for (const s of stokList.filter(x => !x.isDeleted)) {
+                    const miktar = Number(s.mevcutMiktar ?? s.miktar) || 0;
+                    if (miktar !== 0) {
+                      await writeData(`StokHareketler/DEVIR_STK_${s.id}_${devirHedefYil}`, {
+                        id: `DEVIR_STK_${s.id}_${devirHedefYil}`,
+                        stokId: s.id,
+                        stokAdi: s.stokAdi,
+                        islemTuru: 'Devir Fişi',
+                        evrakNo: `DEVIR-STK-${devirKaynakYil}`,
+                        aciklama: `${devirKaynakYil} Yılı Stok Sayım Devri`,
+                        miktar: miktar,
+                        girisMiktari: miktar > 0 ? miktar : 0,
+                        cikisMiktari: miktar < 0 ? Math.abs(miktar) : 0,
+                        tarih: `${devirHedefYil}-01-01T00:00:00.000Z`,
+                        isDeleted: false
+                      });
+
+                      await writeData(`Stoklar/${s.id}`, {
+                        ...s,
+                        devirMiktari: miktar,
+                        mevcutMiktar: miktar
+                      });
+                      aktarilanStok++;
+                    }
+                  }
+                }
+              }
+
+              // Yıl listesini güncelle
+              if (!availableYears.includes(devirHedefYil)) {
+                setAvailableYears(prev => [...prev, devirHedefYil].sort());
+              }
+
+              Alert.alert(
+                'Yıl Devri Tamamlandı',
+                `${devirKaynakYil} yılından ${devirHedefYil} yılına devir işlemi başarıyla gerçekleşti:\n\n` +
+                `• Cari Devir Fişi: ${aktarilanCari} cari\n` +
+                `• Kasa Devir Fişi: ${aktarilanKasa} kasa\n` +
+                `• Banka Devir Fişi: ${aktarilanBanka} banka\n` +
+                `• Stok Devir Fişi: ${aktarilanStok} ürün\n\n` +
+                `Şimdi ${devirHedefYil} çalışma yılına geçiş yapmak ister misiniz?`,
+                [
+                  { text: 'Hayır, Mevcut Yılda Kal', style: 'cancel' },
+                  { 
+                    text: `${devirHedefYil} Yılına Geç`, 
+                    onPress: async () => {
+                      await saveActiveYear(devirHedefYil);
+                      setActiveYear(devirHedefYil);
+                      Alert.alert('Bilgi', `Aktif çalışma yılı ${devirHedefYil} olarak ayarlandı.`);
+                    }
+                  }
+                ]
+              );
+            } catch (err: any) {
+              Alert.alert('Hata', 'Devir işlemi sırasında hata oluştu: ' + (err?.message || err));
+            } finally {
+              setDevirYukleniyor(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -506,6 +717,7 @@ export default function AyarlarScreen() {
     { id: 'profile', title: 'Firma Profili', description: 'Firma ünvanı, iletişim ve logo ayarları.', icon: Building, color: '#8B5CF6' },
     { id: 'security', title: 'Güvenlik ve Kilit', description: 'Oturum kilidi, PIN ve şifre ayarları.', icon: Lock, color: '#EF4444' },
     { id: 'backup', title: 'Yedekleme ve Bakım', description: 'Tüm veritabanını yedekleyin veya geri yükleyin.', icon: Database, color: '#10B981' },
+    { id: 'devir', title: 'Mali Yıl & Devir Sihirbazı', description: 'Aktif çalışma yılı ve bakiyeleri yeni yıla devretme.', icon: Calendar, color: '#3B82F6' },
     { id: 'cleanup', title: 'Veri Temizlik', description: 'Silinmiş çöp kayıtları ve yerel önbelleği temizleyin.', icon: Trash2, color: '#64748B' }
   ];
 
@@ -840,6 +1052,125 @@ export default function AyarlarScreen() {
 
 
 
+            {/* 6. Mali Yıl & Yıl Devir Sihirbazı */}
+            {currentCategory === 'devir' && (
+              <>
+                {/* Aktif Çalışma Yılı Kartı */}
+                <View style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <Calendar color="#3B82F6" size={22} />
+                    <Text style={styles.cardTitle}>Aktif Çalışma Yılı</Text>
+                  </View>
+                  <Text style={[styles.inputLabel, { fontWeight: 'normal', marginBottom: 12 }]}>
+                    Uygulamanın fatura, hareket ve stok kayıtlarını işlediği aktif mali yıl.
+                  </Text>
+                  
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                    {availableYears.map((yr) => (
+                      <TouchableOpacity
+                        key={yr}
+                        style={[
+                          styles.segmentBtn,
+                          activeYear === yr ? styles.segmentBtnActive : { backgroundColor: '#1E293B' },
+                          { paddingHorizontal: 16, flex: 0 }
+                        ]}
+                        onPress={() => handleSwitchYear(yr)}
+                      >
+                        <Text style={[styles.segmentBtnText, activeYear === yr && styles.segmentBtnTextActive]}>
+                          {yr} {activeYear === yr ? '✓ (Aktif)' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Yıl Devir Sihirbazı Kartı */}
+                <View style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <Sparkles color="#10B981" size={22} />
+                    <Text style={styles.cardTitle}>Yıl Devir Sihirbazı (Year Transfer)</Text>
+                  </View>
+                  <Text style={[styles.inputLabel, { fontWeight: 'normal', marginBottom: 14 }]}>
+                    Önceki mali yılın cari borç/alacak, kasa nakit, banka ve depo stok kapanış bakiyelerini yeni mali yıla devir fişi olarak aktarır.
+                  </Text>
+
+                  {/* Kaynak ve Hedef Yıl Seçimi */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, backgroundColor: '#0B1120', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ color: '#94A3B8', fontSize: 11, marginBottom: 4 }}>Kaynak Mali Yıl</Text>
+                      <TextInput
+                        style={[styles.input, { width: 90, textAlign: 'center', fontWeight: 'bold' }]}
+                        keyboardType="numeric"
+                        value={devirKaynakYil}
+                        onChangeText={setDevirKaynakYil}
+                      />
+                    </View>
+
+                    <ArrowRight color="#3B82F6" size={24} style={{ marginHorizontal: 8 }} />
+
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ color: '#94A3B8', fontSize: 11, marginBottom: 4 }}>Hedef Mali Yıl</Text>
+                      <TextInput
+                        style={[styles.input, { width: 90, textAlign: 'center', fontWeight: 'bold' }]}
+                        keyboardType="numeric"
+                        value={devirHedefYil}
+                        onChangeText={setDevirHedefYil}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Devredilecek Modüller */}
+                  <Text style={[styles.inputLabel, { color: '#E2E8F0', fontWeight: 'bold', marginBottom: 8 }]}>
+                    Devredilecek Modüller
+                  </Text>
+
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}
+                    onPress={() => setDevirCariSecili(!devirCariSecili)}
+                  >
+                    {devirCariSecili ? <CheckSquare color="#10B981" size={20} /> : <Square color="#64748B" size={20} />}
+                    <Text style={{ color: '#FFF', marginLeft: 10, fontSize: 13 }}>Cari Hesap Kapanış Bakiyeleri (Devir Fişi)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}
+                    onPress={() => setDevirKasaSecili(!devirKasaSecili)}
+                  >
+                    {devirKasaSecili ? <CheckSquare color="#10B981" size={20} /> : <Square color="#64748B" size={20} />}
+                    <Text style={{ color: '#FFF', marginLeft: 10, fontSize: 13 }}>Kasa Nakit Bakiyesi (Devir Fişi)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}
+                    onPress={() => setDevirBankaSecili(!devirBankaSecili)}
+                  >
+                    {devirBankaSecili ? <CheckSquare color="#10B981" size={20} /> : <Square color="#64748B" size={20} />}
+                    <Text style={{ color: '#FFF', marginLeft: 10, fontSize: 13 }}>Banka Hesap Bakiyeleri (Devir Fişi)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, marginBottom: 16 }}
+                    onPress={() => setDevirStokSecili(!devirStokSecili)}
+                  >
+                    {devirStokSecili ? <CheckSquare color="#10B981" size={20} /> : <Square color="#64748B" size={20} />}
+                    <Text style={{ color: '#FFF', marginLeft: 10, fontSize: 13 }}>Stok Depo Sayım Miktarları (Devir Fişi)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.btn, { backgroundColor: '#10B981' }]} 
+                    onPress={handleYearTransfer}
+                    disabled={devirYukleniyor}
+                  >
+                    {devirYukleniyor ? (
+                      <ActivityIndicator color="#FFF" />
+                    ) : (
+                      <Text style={styles.btnText}>Yıl Devir İşlemini Başlat</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
             {/* 7. Veri Temizlik */}
             {currentCategory === 'cleanup' && (
               <>
@@ -1047,5 +1378,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
     marginLeft: 6,
+  },
+  segmentBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  segmentBtnActive: {
+    backgroundColor: '#10B981',
+  },
+  segmentBtnText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  segmentBtnTextActive: {
+    color: '#FFF',
   }
 });

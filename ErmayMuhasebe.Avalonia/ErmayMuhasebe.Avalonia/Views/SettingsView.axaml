@@ -436,8 +436,8 @@
                                 <!-- KART 3: Şifre Kurtarma Paneli (Expander İçinde) -->
                                 <Expander Header="Şifremi Unuttum / Kurtarma Seçenekleri" Width="800" HorizontalAlignment="Left" CornerRadius="12" BorderBrush="{DynamicResource BorderColor}" Background="rgba(255, 255, 255, 0.01)" Padding="15">
                                     <StackPanel Spacing="15">
-                                        <TextBlock Text="Kullanıcı adınızı girip E-posta veya Telegram ile 6 haneli doğrulama kodu talep edebilirsiniz." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap"/>
-                                        <TextBox Text="{Binding ResetUsername}" Watermark="Kullanıcı adınızı girin (örn: admin)" Height="45" CornerRadius="10"/>
+                                        <TextBlock Text="Kullanıcı adınızı veya kayıtlı e-posta adresinizi girip E-posta veya Telegram ile 6 haneli doğrulama kodu talep edebilirsiniz." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap"/>
+                                        <TextBox Text="{Binding ResetUsername}" Watermark="Kullanıcı Adı veya E-posta" Height="45" CornerRadius="10"/>
                                         
                                         <Grid ColumnDefinitions="*, 15, *">
                                             <Button Grid.Column="0" Command="{Binding SendResetCodeCommand}" Content="E-posta ile Gönder" Classes="Primary" Height="42" CornerRadius="10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding !IsBusy}"/>

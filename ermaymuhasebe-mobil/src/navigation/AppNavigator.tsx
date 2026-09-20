@@ -65,7 +65,7 @@ function MoreStack() {
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      screenOptions={({ route }: any) => ({
         headerShown: false,
         sceneStyle: { backgroundColor: '#0A0A0A' },
         tabBarStyle: {
@@ -82,7 +82,7 @@ function MainTabs() {
           fontSize: 10,
           fontWeight: '600',
         },
-        tabBarIcon: ({ color, focused }) => {
+        tabBarIcon: ({ color, focused }: any) => {
           let IconComponent = Home;
           if (route.name === 'Dashboard') {
             IconComponent = Home;

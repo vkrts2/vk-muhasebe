@@ -44,20 +44,46 @@ if (Test-Path $cloudConfigPath) {
                 Authorization = "Bearer $($cfg.AuthSecret)"
             }
             $tables = @(
-                'cari_hareketler','cariler','stok_hareketler','stoklar',
-                'fatura_detaylar','faturalar','siparis_detaylar','siparisler',
-                'teklif_detaylar','teklifler','banka_hareketler','bankalar',
-                'kasa_hareketler','kasalar','cekler','senetler',
-                'kredi_karti_islemler','eft_islemler','doviz_kurlari','belge_arsiv',
-                'notlar','gorevler','personeller','firma_profili',
-                'satis_hedefleri','haftalik_satis_hedefleri','yillik_satis_hedefleri',
-                'stok_sayim_fisileri','stok_sayim_detaylari','portfoy_kartlar',
-                'musteri_takip_klasorler','musteri_takip_detaylar'
+                'fatura_detaylar',
+                'siparis_detaylar',
+                'teklif_detaylar',
+                'stok_sayim_detaylari',
+                'musteri_takip_detaylar',
+                'cari_hareketler',
+                'stok_hareketler',
+                'banka_hareketler',
+                'kasa_hareketler',
+                'kredi_karti_islemler',
+                'eft_islemler',
+                'cekler',
+                'senetler',
+                'faturalar',
+                'siparisler',
+                'teklifler',
+                'stok_sayim_fisileri',
+                'musteri_takip_klasorler',
+                'stoklar',
+                'cariler',
+                'bankalar',
+                'kasalar',
+                'doviz_kurlari',
+                'belge_arsiv',
+                'notlar',
+                'gorevler',
+                'personeller',
+                'satis_hedefleri',
+                'haftalik_satis_hedefleri',
+                'yillik_satis_hedefleri',
+                'portfoy_kartlar',
+                'firma_profili',
+                'kullanicilar'
             )
-            foreach ($t in $tables) {
-                try {
-                    Invoke-RestMethod -Uri "$($cfg.BaseUrl)/rest/v1/$t`?id=gte.0" -Method Delete -Headers $headers -ErrorAction SilentlyContinue
-                } catch {}
+            for ($pass = 1; $pass -le 3; $pass++) {
+                foreach ($t in $tables) {
+                    try {
+                        Invoke-RestMethod -Uri "$($cfg.BaseUrl)/rest/v1/$t`?id=gte.0" -Method Delete -Headers $headers -ErrorAction SilentlyContinue
+                    } catch {}
+                }
             }
             Write-Host "Supabase bulut veritabani tamamen temizlendi."
         }

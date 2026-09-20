@@ -49,7 +49,7 @@ app.Use(async (context, next) =>
     // Clear existing to avoid duplicates if any
     context.Response.Headers["Access-Control-Allow-Origin"] = "*";
     context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-    context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With";
+    context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With, X-API-Key";
     context.Response.Headers["Access-Control-Max-Age"] = "86400"; // Cache preflight for 24h
 
     if (context.Request.Method == "OPTIONS")
@@ -57,6 +57,26 @@ app.Use(async (context, next) =>
         context.Response.StatusCode = 200;
         await context.Response.CompleteAsync();
         return;
+    }
+
+    // Optional API Key check if PDF_API_KEY environment variable is configured
+    var requiredApiKey = Environment.GetEnvironmentVariable("PDF_API_KEY");
+    if (!string.IsNullOrEmpty(requiredApiKey) && context.Request.Path.StartsWithSegments("/generate"))
+    {
+        var providedKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
+        if (string.IsNullOrEmpty(providedKey) && context.Request.Headers.ContainsKey("Authorization"))
+        {
+            var authHeader = context.Request.Headers["Authorization"].ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                providedKey = authHeader.Substring(7).Trim();
+        }
+
+        if (string.IsNullOrEmpty(providedKey) || !string.Equals(providedKey, requiredApiKey, StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = 401;
+            await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid or missing API Key" });
+            return;
+        }
     }
 
     Console.WriteLine($"[API-LOG] Request: {context.Request.Method} {context.Request.Path}");

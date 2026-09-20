@@ -237,10 +237,10 @@
             Miktar = (int)d.Miktar, 
             Birim = d.Birim ?? "Adet",
             BirimFiyat = d.BirimFiyat,
-            KDVOrani = 20, 
+            KDVOrani = (decimal)(d.KdvOrani > 0 ? d.KdvOrani : 20), 
             Toplam = (decimal)d.Miktar * d.BirimFiyat,
-            KDVTutari = ((decimal)d.Miktar * d.BirimFiyat) * 0.20m,
-            GenelToplam = ((decimal)d.Miktar * d.BirimFiyat) * 1.20m
+            KDVTutari = ((decimal)d.Miktar * d.BirimFiyat) * (decimal)((d.KdvOrani > 0 ? d.KdvOrani : 20) / 100.0),
+            GenelToplam = ((decimal)d.Miktar * d.BirimFiyat) * (1m + (decimal)((d.KdvOrani > 0 ? d.KdvOrani : 20) / 100.0))
         }).ToList();
         
         var options = new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true, FullScreen = true };

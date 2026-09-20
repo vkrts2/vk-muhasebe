@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Modal, Share, Image } from 'react-native';
-import { Wrench, TrendingUp, Landmark, Target, RefreshCw, Save, Users, Layers, Search, X, Activity, Percent, AlertTriangle, Briefcase, Plus, Phone, Trash2, Edit3, Share2, Paperclip, Clock, FileText, Lock, Palette, Folder, ArrowLeft } from 'lucide-react-native';
+import { Wrench, TrendingUp, Landmark, Target, RefreshCw, Save, Users, Layers, Search, X, Activity, Percent, AlertTriangle, Briefcase, Plus, Phone, Trash2, Edit3, Share2, Paperclip, Clock, FileText, Lock, Palette, Folder, ArrowLeft, ChevronDown, ChevronUp, Sparkles } from 'lucide-react-native';
 import { subscribeToPath, writeData, deleteData, readData } from '../services/firebase';
 import { generateInt32Id } from '../utils/IdGenerator';
 import { hesapKur, hesapOptimalFiyat } from '../services/analizUtils';
@@ -43,13 +43,18 @@ export default function AraclarScreen() {
   const [guncellemeYonu, setGuncellemeYonu] = useState<'Artış' | 'Azalış'>('Artış');
   const [yuzdeOran, setYuzdeOran] = useState('');
 
-  // 3. Hedef Yönetimi
+  // 3. Hedef Yönetimi & Gelişmiş Bütçe Dağılımı
   const [aylikHedef, setAylikHedef] = useState('');
   const [hedefLoader, setHedefLoader] = useState(false);
   const [faturalar, setFaturalar] = useState<any[]>([]);
   const [selectedHedefYear, setSelectedHedefYear] = useState<number>(new Date().getFullYear());
   const [aylikHedefler, setAylikHedefler] = useState<any[]>([]);
   const [selectedEditMonth, setSelectedEditMonth] = useState<number | null>(null);
+  const [isDagitimModalOpen, setIsDagitimModalOpen] = useState(false);
+  const [yillikHedefInput, setYillikHedefInput] = useState('');
+  const [dagitimTuru, setDagitimTuru] = useState<'esit' | 'trend'>('esit');
+  const [trendBuyumeOrani, setTrendBuyumeOrani] = useState('15');
+  const [expandedWeeksMonth, setExpandedWeeksMonth] = useState<number | null>(null);
 
   // 4. Cari Birleştirme State
   const [sourceCari, setSourceCari] = useState<any | null>(null);
@@ -236,11 +241,13 @@ export default function AraclarScreen() {
         const yuzde = hedefTutari > 0 ? (gerceklesen / hedefTutari) * 100 : 0;
         const renk = yuzde >= 100 ? '#10B981' : (yuzde >= 70 ? '#3B82F6' : (yuzde >= 50 ? '#F59E0B' : '#EF4444'));
 
+        const fark = gerceklesen - hedefTutari;
         return {
           ay: ayNum,
           ayAdi,
           hedef: hedefTutari,
           gerceklesen,
+          fark,
           yuzde,
           renk,
           dbId: dbHedef?.firebaseKey || `${selectedHedefYear * 100 + ayNum}`
@@ -559,6 +566,95 @@ export default function AraclarScreen() {
     }
   };
 
+  // Gelişmiş Bütçe Dağılım Sihirbazı (12 aya eşit veya geçen yıl trendine göre ağırlıklı)
+  const handleAutoDagitim = async () => {
+    const total = parseFloat(yillikHedefInput);
+    if (isNaN(total) || total <= 0) {
+      Alert.alert('Hata', 'Lütfen geçerli bir yıllık hedef tutarı giriniz.');
+      return;
+    }
+
+    setHedefLoader(true);
+    try {
+      if (dagitimTuru === 'esit') {
+        const aylikPay = Math.round(total / 12);
+        for (let m = 1; m <= 12; m++) {
+          const id = selectedHedefYear * 100 + m;
+          await writeData(`SatisHedefleri/${id}`, {
+            id,
+            yil: selectedHedefYear,
+            ay: m,
+            hedefTutari: aylikPay,
+            isDeleted: false
+          });
+        }
+      } else {
+        // Trend bazlı dağıtım: Bir önceki yılın gerçekleşen satış trendi
+        const prevYear = selectedHedefYear - 1;
+        const prevInvoices = faturalar.filter(f => {
+          const d = new Date(f.tarih || f.Tarih);
+          return d.getFullYear() === prevYear && (f.tur === 'Satis' || f.tur === 'Satış' || f.Tur === 'Satis' || f.Tur === 'Satış');
+        });
+        const prevMonthly = Array.from({ length: 12 }, (_, i) => {
+          const m = i + 1;
+          return prevInvoices.filter(f => (new Date(f.tarih || f.Tarih).getMonth() + 1) === m)
+                             .reduce((sum, f) => sum + (f.genelToplam || f.GenelToplam || 0), 0);
+        });
+        const prevTotal = prevMonthly.reduce((a, b) => a + b, 0);
+
+        for (let m = 1; m <= 12; m++) {
+          const ratio = prevTotal > 0 ? (prevMonthly[m - 1] / prevTotal) : (1 / 12);
+          const pay = Math.round(total * ratio);
+          const id = selectedHedefYear * 100 + m;
+          await writeData(`SatisHedefleri/${id}`, {
+            id,
+            yil: selectedHedefYear,
+            ay: m,
+            hedefTutari: pay,
+            isDeleted: false
+          });
+        }
+      }
+
+      setIsDagitimModalOpen(false);
+      setYillikHedefInput('');
+      Alert.alert('Başarılı', `${selectedHedefYear} yılı için 12 aylık bütçe hedefi ${dagitimTuru === 'esit' ? 'eşit olarak' : 'geçen yıl trendine göre'} başarıyla dağıtıldı.`);
+    } catch (e) {
+      Alert.alert('Hata', 'Hedef dağıtımı sırasında hata oluştu.');
+    } finally {
+      setHedefLoader(false);
+    }
+  };
+
+  // Seçili ay için haftalık gerçekleşme ve hedef dökümü
+  const getWeeklyBreakdown = (ay: number, ayHedef: number) => {
+    const daysInMonth = new Date(selectedHedefYear, ay, 0).getDate();
+    const filteredInvoices = faturalar.filter(f => {
+      const date = new Date(f.tarih || f.Tarih);
+      return date.getFullYear() === selectedHedefYear && 
+             (date.getMonth() + 1 === ay) &&
+             (f.tur === 'Satis' || f.tur === 'Satış' || f.Tur === 'Satis' || f.Tur === 'Satış');
+    });
+
+    const weeks = [
+      { num: 1, label: '1. Hafta (1-7)', startDay: 1, endDay: 7 },
+      { num: 2, label: '2. Hafta (8-14)', startDay: 8, endDay: 14 },
+      { num: 3, label: '3. Hafta (15-21)', startDay: 15, endDay: 21 },
+      { num: 4, label: `4. Hafta (22-${daysInMonth})`, startDay: 22, endDay: daysInMonth }
+    ];
+
+    const weekTarget = ayHedef > 0 ? Math.round(ayHedef / 4) : 0;
+    return weeks.map(w => {
+      const actual = filteredInvoices.filter(f => {
+        const d = new Date(f.tarih || f.Tarih).getDate();
+        return d >= w.startDay && d <= w.endDay;
+      }).reduce((sum, f) => sum + (f.genelToplam || f.GenelToplam || 0), 0);
+      const pct = weekTarget > 0 ? (actual / weekTarget) * 100 : 0;
+      const renk = pct >= 100 ? '#10B981' : (pct >= 70 ? '#3B82F6' : (pct >= 50 ? '#F59E0B' : '#EF4444'));
+      return { ...w, target: weekTarget, actual, pct, renk, fark: actual - weekTarget };
+    });
+  };
+
   // Gecikme Faizi Hesaplama Formülü
   const calculateFaiz = () => {
     const p = parseFloat(anaPara) || 0;
@@ -818,112 +914,262 @@ export default function AraclarScreen() {
           </View>
         )}
 
-        {/* Tab 3: Ciro Hedefi (Bütçe Planlama) */}
-        {activeTab === 'hedef' && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Target color="#3B82F6" size={22} />
-              <Text style={styles.cardTitle}>Bütçe Planlama & Satış Hedefi</Text>
-            </View>
+        {/* Tab 3: Ciro Hedefi (Bütçe Planlama - Gelişmiş Dağılım) */}
+        {activeTab === 'hedef' && (() => {
+          const yillikToplamHedef = aylikHedefler.reduce((sum, item) => sum + (item.hedef || 0), 0);
+          const yillikToplamGerceklesen = aylikHedefler.reduce((sum, item) => sum + (item.gerceklesen || 0), 0);
+          const yillikOran = yillikToplamHedef > 0 ? (yillikToplamGerceklesen / yillikToplamHedef) * 100 : 0;
+          const yillikFark = yillikToplamGerceklesen - yillikToplamHedef;
 
-            {/* Yıl Seçimi */}
-            <View style={styles.yearSelectorContainer}>
-              <TouchableOpacity 
-                style={styles.yearArrow} 
-                onPress={() => setSelectedHedefYear(prev => prev - 1)}
-              >
-                <Text style={styles.yearArrowText}>{"<"}</Text>
-              </TouchableOpacity>
-              <Text style={styles.yearText}>{selectedHedefYear}</Text>
-              <TouchableOpacity 
-                style={styles.yearArrow} 
-                onPress={() => setSelectedHedefYear(prev => prev + 1)}
-              >
-                <Text style={styles.yearArrowText}>{">"}</Text>
-              </TouchableOpacity>
-            </View>
+          return (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Target color="#3B82F6" size={22} />
+                <Text style={styles.cardTitle}>Bütçe Planlama & Satış Hedefi</Text>
+              </View>
 
-            {/* 12 Ay Listesi */}
-            <ScrollView style={styles.hedefListScroll} nestedScrollEnabled={true}>
-              {aylikHedefler.map((item) => (
-                <View key={item.ay} style={styles.hedefRowContainer}>
-                  <View style={styles.hedefRowHeader}>
-                    <Text style={styles.hedefMonthName}>{item.ayAdi}</Text>
+              {/* Yıl Seçimi & Otomatik Dağılım Butonu */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <View style={styles.yearSelectorContainer}>
+                  <TouchableOpacity 
+                    style={styles.yearArrow} 
+                    onPress={() => setSelectedHedefYear(prev => prev - 1)}
+                  >
+                    <Text style={styles.yearArrowText}>{"<"}</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.yearText}>{selectedHedefYear}</Text>
+                  <TouchableOpacity 
+                    style={styles.yearArrow} 
+                    onPress={() => setSelectedHedefYear(prev => prev + 1)}
+                  >
+                    <Text style={styles.yearArrowText}>{">"}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.btnPremium, { backgroundColor: '#2563EB', paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center' }]}
+                  onPress={() => setIsDagitimModalOpen(true)}
+                >
+                  <Sparkles color="#FFF" size={16} style={{ marginRight: 6 }} />
+                  <Text style={[styles.btnText, { fontSize: 12 }]}>Dağılım Sihirbazı</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Yıllık Özet KPI Kartları */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <View style={[styles.kpiBox, { width: '48%', borderLeftColor: '#3B82F6' }]}>
+                  <Text style={styles.kpiBoxTitle}>Yıllık Hedef</Text>
+                  <Text style={[styles.kpiBoxVal, { color: '#3B82F6' }]}>{formatMoney(yillikToplamHedef)}</Text>
+                </View>
+                <View style={[styles.kpiBox, { width: '48%', borderLeftColor: '#10B981' }]}>
+                  <Text style={styles.kpiBoxTitle}>Yıllık Gerçekleşen</Text>
+                  <Text style={[styles.kpiBoxVal, { color: '#10B981' }]}>{formatMoney(yillikToplamGerceklesen)}</Text>
+                </View>
+                <View style={[styles.kpiBox, { width: '48%', borderLeftColor: yillikOran >= 100 ? '#10B981' : (yillikOran >= 70 ? '#3B82F6' : '#EF4444') }]}>
+                  <Text style={styles.kpiBoxTitle}>Hedef Gerçekleşme</Text>
+                  <Text style={[styles.kpiBoxVal, { color: yillikOran >= 100 ? '#10B981' : (yillikOran >= 70 ? '#3B82F6' : '#EF4444') }]}>
+                    %{yillikOran.toFixed(1)}
+                  </Text>
+                </View>
+                <View style={[styles.kpiBox, { width: '48%', borderLeftColor: yillikFark >= 0 ? '#10B981' : '#EF4444' }]}>
+                  <Text style={styles.kpiBoxTitle}>Bütçe Sapması (Fark)</Text>
+                  <Text style={[styles.kpiBoxVal, { color: yillikFark >= 0 ? '#10B981' : '#EF4444' }]}>
+                    {yillikFark >= 0 ? '+' : ''}{formatMoney(yillikFark)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* 12 Ay Listesi */}
+              <ScrollView style={styles.hedefListScroll} nestedScrollEnabled={true}>
+                {aylikHedefler.map((item) => {
+                  const isExpanded = expandedWeeksMonth === item.ay;
+                  const weeklyData = isExpanded ? getWeeklyBreakdown(item.ay, item.hedef) : [];
+
+                  return (
+                    <View key={item.ay} style={styles.hedefRowContainer}>
+                      <View style={styles.hedefRowHeader}>
+                        <Text style={styles.hedefMonthName}>{item.ayAdi}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <TouchableOpacity 
+                            onPress={() => setExpandedWeeksMonth(isExpanded ? null : item.ay)}
+                            style={[styles.editIconBtn, { backgroundColor: isExpanded ? '#3B82F625' : 'transparent' }]}
+                          >
+                            <Text style={[styles.editIconBtnText, { color: '#60A5FA' }]}>
+                              {isExpanded ? 'Haftaları Gizle' : 'Haftalık'}
+                            </Text>
+                            {isExpanded ? <ChevronUp color="#60A5FA" size={14} style={{ marginLeft: 2 }} /> : <ChevronDown color="#60A5FA" size={14} style={{ marginLeft: 2 }} />}
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            onPress={() => {
+                              setSelectedEditMonth(item.ay);
+                              setAylikHedef(item.hedef > 0 ? String(item.hedef) : '');
+                            }}
+                            style={styles.editIconBtn}
+                          >
+                            <Text style={styles.editIconBtnText}>Düzenle</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Detay Bilgileri */}
+                      <View style={styles.hedefDetailsRow}>
+                        <Text style={styles.hedefDetailVal}>
+                          Hedef: <Text style={{fontWeight: 'bold', color: '#FFF'}}>{formatMoney(item.hedef)}</Text>
+                        </Text>
+                        <Text style={styles.hedefDetailVal}>
+                          Gerçekleşen: <Text style={{fontWeight: 'bold', color: '#FFF'}}>{formatMoney(item.gerceklesen)}</Text>
+                        </Text>
+                      </View>
+                      <View style={[styles.hedefDetailsRow, { marginTop: 2 }]}>
+                        <Text style={styles.hedefDetailVal}>
+                          Fark: <Text style={{fontWeight: 'bold', color: item.fark >= 0 ? '#10B981' : '#EF4444'}}>
+                            {item.fark >= 0 ? '+' : ''}{formatMoney(item.fark)}
+                          </Text>
+                        </Text>
+                      </View>
+
+                      {/* İlerleme Çubuğu */}
+                      <View style={styles.progressContainer}>
+                        <View style={styles.progressBarBg}>
+                          <View 
+                            style={[
+                              styles.progressBarFill, 
+                              { 
+                                width: `${Math.min(item.yuzde, 100)}%`, 
+                                backgroundColor: item.renk 
+                              }
+                            ]} 
+                          />
+                        </View>
+                        <Text style={[styles.progressPct, { color: item.renk }]}>
+                          %{item.yuzde.toFixed(1)}
+                        </Text>
+                      </View>
+
+                      {/* Haftalık Kırılım (ISO Weeks) */}
+                      {isExpanded && (
+                        <View style={{ backgroundColor: '#0B1120', borderRadius: 10, padding: 10, marginVertical: 8, borderWidth: 1, borderColor: '#1E293B' }}>
+                          <Text style={{ color: '#93C5FD', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+                            📅 {item.ayAdi} Ayı Haftalık Dağılım & Gerçekleşme
+                          </Text>
+                          {weeklyData.map((w) => (
+                            <View key={w.num} style={{ marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#1E293B' }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                                <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600' }}>{w.label}</Text>
+                                <Text style={{ color: w.renk, fontSize: 11, fontWeight: '700' }}>%{w.pct.toFixed(0)}</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <Text style={{ color: '#64748B', fontSize: 10 }}>Hedef: {formatMoney(w.target)}</Text>
+                                <Text style={{ color: '#E2E8F0', fontSize: 10, fontWeight: '600' }}>Gerçekleşen: {formatMoney(w.actual)}</Text>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {/* Seçili Ay Düzenleme Formu */}
+                      {selectedEditMonth === item.ay && (
+                        <View style={styles.editTargetForm}>
+                          <Text style={styles.editTargetFormLabel}>{item.ayAdi} Ayı Ciro Hedefi (₺)</Text>
+                          <View style={styles.editTargetFormRow}>
+                            <TextInput
+                              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                              keyboardType="numeric"
+                              placeholder="Hedef ciro tutarı..."
+                              placeholderTextColor="#64748B"
+                              value={aylikHedef}
+                              onChangeText={setAylikHedef}
+                            />
+                            <TouchableOpacity 
+                              style={[styles.btnPremium, { backgroundColor: '#10B981', marginLeft: 8, paddingVertical: 12 }]} 
+                              onPress={() => handleSaveHedef(item.ay, aylikHedef)}
+                              disabled={hedefLoader}
+                            >
+                              {hedefLoader ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.btnText}>Kaydet</Text>}
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={[styles.btnPremium, { backgroundColor: '#64748B', marginLeft: 8, paddingVertical: 12 }]} 
+                              onPress={() => setSelectedEditMonth(null)}
+                            >
+                              <Text style={styles.btnText}>İptal</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+                      
+                      <View style={styles.rowDivider} />
+                    </View>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Gelişmiş Dağılım Sihirbazı Modalı */}
+              <Modal visible={isDagitimModalOpen} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                  <View style={[styles.modalContent, { maxHeight: 520, borderRadius: 16 }]}>
+                    <View style={styles.modalHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Sparkles color="#3B82F6" size={20} style={{ marginRight: 8 }} />
+                        <Text style={styles.modalTitle}>Bütçe Dağılım Sihirbazı</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setIsDagitimModalOpen(false)}>
+                        <X color="#FFF" size={22} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={{ color: '#94A3B8', fontSize: 12, marginBottom: 14 }}>
+                      {selectedHedefYear} mali yılı için yıllık toplam satış hedefinizi belirleyin ve 12 aya otomatik paylaştırın.
+                    </Text>
+
+                    <Text style={styles.label}>Yıllık Toplam Ciro Hedefi (₺)</Text>
+                    <TextInput 
+                      style={styles.input} 
+                      keyboardType="numeric" 
+                      placeholder="Örn: 2400000" 
+                      placeholderTextColor="#64748B"
+                      value={yillikHedefInput} 
+                      onChangeText={setYillikHedefInput} 
+                    />
+
+                    <Text style={[styles.label, { marginTop: 12 }]}>Dağıtım Yöntemi</Text>
+                    <View style={styles.segmentRow}>
+                      <TouchableOpacity 
+                        style={[styles.segmentBtn, dagitimTuru === 'esit' && styles.segmentBtnActive]}
+                        onPress={() => setDagitimTuru('esit')}
+                      >
+                        <Text style={[styles.segmentBtnText, dagitimTuru === 'esit' && styles.segmentBtnTextActive]}>
+                          12 Aya Eşit
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.segmentBtn, dagitimTuru === 'trend' && styles.segmentBtnActive]}
+                        onPress={() => setDagitimTuru('trend')}
+                      >
+                        <Text style={[styles.segmentBtnText, dagitimTuru === 'trend' && styles.segmentBtnTextActive]}>
+                          Geçen Yıl Trendine Göre
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={{ color: '#64748B', fontSize: 11, marginTop: 8, marginBottom: 16 }}>
+                      {dagitimTuru === 'esit' 
+                        ? 'Toplam hedef 12 aya eşit olarak paylaştırılır.'
+                        : `Bir önceki yılın (${selectedHedefYear - 1}) gerçekleşen satış ağırlıklarına göre mevsimsel oranlarda dağıtılır.`}
+                    </Text>
+
                     <TouchableOpacity 
-                      onPress={() => {
-                        setSelectedEditMonth(item.ay);
-                        setAylikHedef(item.hedef > 0 ? String(item.hedef) : '');
-                      }}
-                      style={styles.editIconBtn}
+                      style={[styles.btnPremium, { backgroundColor: '#10B981', paddingVertical: 14 }]}
+                      onPress={handleAutoDagitim}
+                      disabled={hedefLoader}
                     >
-                      <Text style={styles.editIconBtnText}>Düzenle</Text>
+                      {hedefLoader ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnText}>Dağıtımı Başlat ve Kaydet</Text>}
                     </TouchableOpacity>
                   </View>
-
-                  {/* Detay Bilgileri */}
-                  <View style={styles.hedefDetailsRow}>
-                    <Text style={styles.hedefDetailVal}>
-                      Hedef: <Text style={{fontWeight: 'bold', color: '#FFF'}}>{formatMoney(item.hedef)}</Text>
-                    </Text>
-                    <Text style={styles.hedefDetailVal}>
-                      Gerçekleşen: <Text style={{fontWeight: 'bold', color: '#FFF'}}>{formatMoney(item.gerceklesen)}</Text>
-                    </Text>
-                  </View>
-
-                  {/* İlerleme Çubuğu */}
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressBarBg}>
-                      <View 
-                        style={[
-                          styles.progressBarFill, 
-                          { 
-                            width: `${Math.min(item.yuzde, 100)}%`, 
-                            backgroundColor: item.renk 
-                          }
-                        ]} 
-                      />
-                    </View>
-                    <Text style={[styles.progressPct, { color: item.renk }]}>
-                      %{item.yuzde.toFixed(1)}
-                    </Text>
-                  </View>
-
-                  {/* Seçili Ay Düzenleme Formu */}
-                  {selectedEditMonth === item.ay && (
-                    <View style={styles.editTargetForm}>
-                      <Text style={styles.editTargetFormLabel}>{item.ayAdi} Ayı Ciro Hedefi (₺)</Text>
-                      <View style={styles.editTargetFormRow}>
-                        <TextInput
-                          style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                          keyboardType="numeric"
-                          placeholder="Hedef ciro tutarı..."
-                          placeholderTextColor="#64748B"
-                          value={aylikHedef}
-                          onChangeText={setAylikHedef}
-                        />
-                        <TouchableOpacity 
-                          style={[styles.btnPremium, { backgroundColor: '#10B981', marginLeft: 8, paddingVertical: 12 }]} 
-                          onPress={() => handleSaveHedef(item.ay, aylikHedef)}
-                          disabled={hedefLoader}
-                        >
-                          {hedefLoader ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.btnText}>Kaydet</Text>}
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                          style={[styles.btnPremium, { backgroundColor: '#64748B', marginLeft: 8, paddingVertical: 12 }]} 
-                          onPress={() => setSelectedEditMonth(null)}
-                        >
-                          <Text style={styles.btnText}>İptal</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-                  
-                  <View style={styles.rowDivider} />
                 </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+              </Modal>
+            </View>
+          );
+        })()}
 
         {/* Tab 4: Cari Birleştir */}
         {activeTab === 'cariBir' && (
@@ -1733,6 +1979,25 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 10,
     lineHeight: 14,
+  },
+  kpiBox: {
+    backgroundColor: '#161616',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderLeftWidth: 3,
+  },
+  kpiBoxTitle: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  kpiBoxVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 3,
   },
   backButtonHeader: {
     flexDirection: 'row',

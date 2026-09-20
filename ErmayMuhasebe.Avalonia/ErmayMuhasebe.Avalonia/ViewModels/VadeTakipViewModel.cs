@@ -144,8 +144,9 @@ public partial class VadeTakipViewModel : ViewModelBase
                 result = result.Where(x => x.VadeTarihi.Date == today);
                 break;
             case "Bu Hafta":
-                var startOfWeek = today.AddDays(-(int)today.DayOfWeek + (int)DayOfWeek.Monday);
-                var endOfWeek = startOfWeek.AddDays(7);
+                var diff = ((int)today.DayOfWeek == 0 ? 7 : (int)today.DayOfWeek) - 1;
+                var startOfWeek = today.AddDays(-diff);
+                var endOfWeek = today.AddDays(8);
                 result = result.Where(x => x.VadeTarihi.Date >= startOfWeek && x.VadeTarihi.Date < endOfWeek);
                 break;
             case "Bu Ay":

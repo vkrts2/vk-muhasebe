@@ -53,14 +53,23 @@ public partial class FaturaItemViewModel : ObservableObject
         set { if (SetProperty(ref _birimFiyat, value)) OnAmountChanged(); }
     }
 
+    private decimal _iskontoOrani;
+    public decimal IskontoOrani
+    {
+        get => _iskontoOrani;
+        set { if (SetProperty(ref _iskontoOrani, value)) OnAmountChanged(); }
+    }
+
+    public decimal IskontoTutari => (Miktar * BirimFiyat) * (IskontoOrani / 100m);
+
     public decimal KdvOrani
     {
         get => _kdvOrani;
         set { if (SetProperty(ref _kdvOrani, value)) OnAmountChanged(); }
     }
 
-    public decimal Tutar => Miktar * BirimFiyat;
-    public decimal KdvTutari => Tutar * (KdvOrani / 100m);
+    public decimal Tutar => (Miktar * BirimFiyat) - IskontoTutari;
+    public decimal KdvTutari => Math.Max(0, Tutar) * (KdvOrani / 100m);
     public decimal GenelToplam => Tutar + KdvTutari;
     
     public string? Aciklama { get; set; }
@@ -68,6 +77,7 @@ public partial class FaturaItemViewModel : ObservableObject
     public event Action? AmountChanged;
     private void OnAmountChanged() 
     {
+        OnPropertyChanged(nameof(IskontoTutari));
         OnPropertyChanged(nameof(Tutar));
         OnPropertyChanged(nameof(KdvTutari));
         OnPropertyChanged(nameof(GenelToplam));

@@ -3,7 +3,8 @@ namespace ErmayMuhasebe.Data;
 public static class Constants
 {
     public const string DatabaseFilename = "ErmayV4_Stable.db3";
-    public const string DatabasePassword = "ERMAY-SECURE-DB-KEY-2025-V2"; 
+    private const string DefaultDatabasePassword = "ERMAY-SECURE-DB-KEY-2025-V2";
+    public static string DatabasePassword => Environment.GetEnvironmentVariable("ERMAY_DB_KEY") ?? DefaultDatabasePassword;
 
 
     public const SQLite.SQLiteOpenFlags Flags =

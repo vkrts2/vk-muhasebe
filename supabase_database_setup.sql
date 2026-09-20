@@ -291,8 +291,26 @@ CREATE TABLE IF NOT EXISTS public.notlar (
 ALTER TABLE public.notlar ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "notlar_all_policy" ON public.notlar FOR ALL USING (true) WITH CHECK (true);
 
+-- 17. KULLANICILAR TABLOSU (Enterprise PBKDF2 Güvenlikli)
+CREATE TABLE IF NOT EXISTS public.kullanicilar (
+    id TEXT PRIMARY KEY,
+    username TEXT,
+    kullanici_adi TEXT,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT,
+    email TEXT,
+    role TEXT DEFAULT 'Admin',
+    rol TEXT DEFAULT 'Admin',
+    is_active BOOLEAN DEFAULT TRUE,
+    aktif_mi BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.kullanicilar ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "kullanicilar_all_policy" ON public.kullanicilar FOR ALL USING (true) WITH CHECK (true);
+
 -- ==============================================================================
--- 17. SUPABASE REALTIME (CANLI YAYIN) YETKİLERİ
+-- 18. SUPABASE REALTIME (CANLI YAYIN) YETKİLERİ
 -- Mobil ve masaüstü arasında saniyelik canlı senkronizasyon için tabloları realtime yayınına ekler.
 -- ==============================================================================
 DO $$
@@ -314,7 +332,8 @@ BEGIN
             public.teklifler,
             public.teklif_detaylar,
             public.firma_profili,
-            public.notlar;
+            public.notlar,
+            public.kullanicilar;
     END IF;
 EXCEPTION
     WHEN duplicate_object THEN NULL;

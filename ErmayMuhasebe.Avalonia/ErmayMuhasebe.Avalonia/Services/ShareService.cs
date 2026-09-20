@@ -90,9 +90,11 @@ namespace ErmayMuhasebe.Avalonia.Services
                     var clipboard = lifetime?.MainWindow?.Clipboard;
                     if (clipboard != null)
                     {
+#pragma warning disable CS0618
                         var dataObject = new DataObject();
                         dataObject.Set(DataFormats.Files, new string[] { tempPath });
                         await clipboard.SetDataObjectAsync(dataObject);
+#pragma warning restore CS0618
                     }
                 }
 

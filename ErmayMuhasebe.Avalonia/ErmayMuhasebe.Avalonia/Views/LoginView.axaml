@@ -92,10 +92,10 @@
             <StackPanel Spacing="15" Margin="0,20,0,0" IsVisible="{Binding ShowResetPasswordPanel}">
                 <TextBlock Text="Şifre Kurtarma / Sıfırlama" FontSize="16" FontWeight="Bold" Foreground="#F43F5E" HorizontalAlignment="Center"/>
                 
-                <!-- Aşama 1: Kullanıcı Adı Girme ve Kod İsteme -->
+                <!-- Aşama 1: Kullanıcı Adı veya E-posta Girme ve Kod İsteme -->
                 <StackPanel Spacing="10" IsVisible="{Binding !IsResetCodeSent}">
-                    <TextBlock Text="Kullanıcı adınızı girip kayıtlı e-posta adresinize 6 haneli doğrulama kodu talep edebilirsiniz." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap" TextAlignment="Center"/>
-                    <TextBox Text="{Binding ResetUsername}" Watermark="Kullanıcı Adı (örn: admin)" Height="40" CornerRadius="8"/>
+                    <TextBlock Text="Kullanıcı adınızı veya kayıtlı e-posta adresinizi girip 6 haneli doğrulama kodu talep edebilirsiniz." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap" TextAlignment="Center"/>
+                    <TextBox Text="{Binding ResetUsername}" Watermark="Kullanıcı Adı veya E-posta" Height="40" CornerRadius="8"/>
 
                     <Button Command="{Binding SendResetCodeCommand}" Content="E-posta ile Doğrulama Kodu Gönder" Classes="Primary" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                 </StackPanel>
@@ -107,11 +107,10 @@
                     <Button Command="{Binding VerifyResetCodeCommand}" Content="Kodu Doğrula" Classes="Warning" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Aşama 3: Tek Kullanımlık Şifre (OTP) ve Yeni Şifre Tanımlama -->
+                <!-- Aşama 3: Yeni Şifre Tanımlama -->
                 <StackPanel Spacing="10" IsVisible="{Binding IsResetCodeVerified}">
-                    <TextBlock Text="Doğrulama başarılı! E-postanıza gönderilen tek kullanımlık şifreyi girerek yeni şifrenizi tanımlayın." FontSize="12" Foreground="#4ADE80" TextWrapping="Wrap" TextAlignment="Center"/>
+                    <TextBlock Text="Doğrulama başarılı! Lütfen yeni şifrenizi belirleyin." FontSize="12" Foreground="#4ADE80" TextWrapping="Wrap" TextAlignment="Center"/>
                     
-                    <TextBox Text="{Binding ResetOneTimePassword}" Watermark="Gelen tek kullanımlık şifre" Height="40" CornerRadius="8"/>
                     <TextBox PasswordChar="*" Text="{Binding ResetNewPassword}" Watermark="Yeni Şifre Belirleyin" Height="40" CornerRadius="8"/>
 
                     <Button Command="{Binding ConfirmResetPasswordCommand}" Content="Şifreyi Güncelle" Classes="Danger" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>

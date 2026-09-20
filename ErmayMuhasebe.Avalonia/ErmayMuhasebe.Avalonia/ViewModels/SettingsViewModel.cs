@@ -1070,17 +1070,62 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
     [RelayCommand]
     private async Task SendResetCodeAsync()
     {
-        var username = string.IsNullOrWhiteSpace(ResetUsername) ? "admin" : ResetUsername.Trim().ToLower();
+        var query = (ResetUsername ?? "").Trim().ToLower();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            ErrorMessage = "Lütfen kullanıcı adınızı veya kayıtlı e-posta adresinizi girin.";
+            return;
+        }
+
         try
         {
             IsBusy = true;
             var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
             if (db == null) return;
             var conn = db.GetGlobalConnection();
-            var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == username);
+            var allUsers = await conn.Table<Models.User>().ToListAsync();
+            var user = allUsers.FirstOrDefault(u =>
+                (!string.IsNullOrEmpty(u.Username) && u.Username.Trim().ToLower() == query) ||
+                (!string.IsNullOrEmpty(u.Email) && u.Email.Trim().ToLower() == query));
+
+            if (user == null && db.SyncService != null)
+            {
+                try
+                {
+                    db.SyncService.ReloadConfig();
+                    if (db.SyncService.IsConnected)
+                    {
+                        var cloudUsers = await db.SyncService.PullUsersAsync();
+                        var cloudUser = cloudUsers.FirstOrDefault(u =>
+                            (!string.IsNullOrEmpty(u.Username) && u.Username.Trim().ToLower() == query) ||
+                            (!string.IsNullOrEmpty(u.Email) && u.Email.Trim().ToLower() == query));
+
+                        if (cloudUser != null)
+                        {
+                            var existing = allUsers.FirstOrDefault(u => u.Username?.ToLower() == cloudUser.Username?.ToLower());
+                            if (existing == null)
+                            {
+                                await conn.InsertAsync(cloudUser);
+                                user = cloudUser;
+                            }
+                            else
+                            {
+                                existing.Email = cloudUser.Email;
+                                existing.Password = cloudUser.Password;
+                                existing.PasswordSalt = cloudUser.PasswordSalt;
+                                existing.Role = cloudUser.Role;
+                                await conn.UpdateAsync(existing);
+                                user = existing;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
             if (user == null)
             {
-                ErrorMessage = "Girdiğiniz kullanıcı adına ait hesap bulunamadı.";
+                ErrorMessage = "Girdiğiniz kullanıcı adı veya e-posta adresine ait hesap bulunamadı.";
                 return;
             }
             if (string.IsNullOrWhiteSpace(user.Email))
@@ -1091,9 +1136,10 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
 
             var randomCode = new Random().Next(100000, 999999).ToString();
             
-            string subject = "Ermay Muhasebe - Şifre Sıfırlama Doğrulama Kodu";
+            string subject = "VK Ön Muhasebe - Şifre Sıfırlama Doğrulama Kodu";
             string body = $@"Hesap şifrenizi sıfırlamak için doğrulama kodu talep ettiniz.
             
+Kullanıcı Adı: {user.Username}
 Doğrulama Kodunuz: {randomCode}
 
 Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
@@ -1101,8 +1147,8 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
             await SendEmailAsync(user.Email.Trim(), subject, body);
 
             _generatedResetCode = randomCode;
-            _generatedOneTimePassword = "";
-            ResetOneTimePassword = "";
+            _generatedOneTimePassword = randomCode;
+            ResetOneTimePassword = randomCode;
             ResetVerificationCode = "";
             ResetNewPassword = "";
             IsResetCodeSent = true;
@@ -1123,17 +1169,62 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
     [RelayCommand]
     private async Task SendResetCodeViaTelegramAsync()
     {
-        var username = string.IsNullOrWhiteSpace(ResetUsername) ? "admin" : ResetUsername.Trim().ToLower();
+        var query = (ResetUsername ?? "").Trim().ToLower();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            ErrorMessage = "Lütfen kullanıcı adınızı veya kayıtlı e-posta adresinizi girin.";
+            return;
+        }
+
         try
         {
             IsBusy = true;
             var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
             if (db == null) return;
             var conn = db.GetGlobalConnection();
-            var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == username);
+            var allUsers = await conn.Table<Models.User>().ToListAsync();
+            var user = allUsers.FirstOrDefault(u =>
+                (!string.IsNullOrEmpty(u.Username) && u.Username.Trim().ToLower() == query) ||
+                (!string.IsNullOrEmpty(u.Email) && u.Email.Trim().ToLower() == query));
+
+            if (user == null && db.SyncService != null)
+            {
+                try
+                {
+                    db.SyncService.ReloadConfig();
+                    if (db.SyncService.IsConnected)
+                    {
+                        var cloudUsers = await db.SyncService.PullUsersAsync();
+                        var cloudUser = cloudUsers.FirstOrDefault(u =>
+                            (!string.IsNullOrEmpty(u.Username) && u.Username.Trim().ToLower() == query) ||
+                            (!string.IsNullOrEmpty(u.Email) && u.Email.Trim().ToLower() == query));
+
+                        if (cloudUser != null)
+                        {
+                            var existing = allUsers.FirstOrDefault(u => u.Username?.ToLower() == cloudUser.Username?.ToLower());
+                            if (existing == null)
+                            {
+                                await conn.InsertAsync(cloudUser);
+                                user = cloudUser;
+                            }
+                            else
+                            {
+                                existing.Email = cloudUser.Email;
+                                existing.Password = cloudUser.Password;
+                                existing.PasswordSalt = cloudUser.PasswordSalt;
+                                existing.Role = cloudUser.Role;
+                                await conn.UpdateAsync(existing);
+                                user = existing;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
             if (user == null)
             {
-                ErrorMessage = "Girdiğiniz kullanıcı adına ait hesap bulunamadı.";
+                ErrorMessage = "Girdiğiniz kullanıcı adı veya e-posta adresine ait hesap bulunamadı.";
                 return;
             }
             if (string.IsNullOrWhiteSpace(user.TelegramChatId))
@@ -1154,8 +1245,8 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
             await TelegramService.SendVerificationCodeAsync(profil.TelegramBotToken, user.TelegramChatId, randomCode);
 
             _generatedResetCode = randomCode;
-            _generatedOneTimePassword = "";
-            ResetOneTimePassword = "";
+            _generatedOneTimePassword = randomCode;
+            ResetOneTimePassword = randomCode;
             ResetVerificationCode = "";
             ResetNewPassword = "";
             IsResetCodeSent = true;
@@ -1207,9 +1298,9 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
     [RelayCommand]
     private async Task VerifyResetCodeAsync()
     {
-        if (string.IsNullOrEmpty(ResetVerificationCode))
+        if (string.IsNullOrWhiteSpace(ResetVerificationCode))
         {
-            ErrorMessage = "Lütfen doğrulama kodunu girin.";
+            ErrorMessage = "Lütfen 6 haneli doğrulama kodunu girin.";
             return;
         }
 
@@ -1219,68 +1310,20 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
             return;
         }
 
-        var username = string.IsNullOrWhiteSpace(ResetUsername) ? "admin" : ResetUsername.Trim().ToLower();
-        try
-        {
-            IsBusy = true;
-            var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
-            if (db == null) return;
-            var conn = db.GetGlobalConnection();
-            var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == username);
-            if (user == null)
-            {
-                ErrorMessage = "Kullanıcı bulunamadı.";
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(user.TelegramChatId))
-            {
-                ErrorMessage = "Tek kullanımlık şifrenin gönderilebilmesi için Telegram Chat ID'nizin kayıtlı olması gerekmektedir.";
-                return;
-            }
-
-            var profil = await _uow.GetFirmaProfiliAsync();
-            if (string.IsNullOrWhiteSpace(profil?.TelegramBotToken))
-            {
-                ErrorMessage = "Telegram Bot Token yapılandırılmamış.";
-                return;
-            }
-
-            var otp = GenerateTempPassword();
-            
-            string message = $"🔐 <b>Ermay Muhasebe - Tek Kullanımlık Şifre</b>\n\n" +
-                             $"Doğrulama başarılı! Şifrenizi güncellemek için kullanacağınız tek kullanımlık şifreniz:\n\n" +
-                             $"📌 <code>{otp}</code>\n\n" +
-                             $"Lütfen bu şifreyi ve yeni şifrenizi ekrandaki alanlara girerek işlemi tamamlayın.";
-
-            await TelegramService.SendMessageAsync(profil.TelegramBotToken, user.TelegramChatId, message);
-
-            _generatedOneTimePassword = otp;
-            IsResetCodeVerified = true;
-            SuccessMessage = "Kod başarıyla doğrulandı. Tek kullanımlık şifreniz Telegram botu üzerinden gönderildi.";
-            ErrorMessage = "";
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Tek kullanımlık şifre gönderilirken hata oluştu: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+        IsResetCodeVerified = true;
+        _generatedOneTimePassword = _generatedResetCode;
+        ResetOneTimePassword = _generatedResetCode;
+        SuccessMessage = "Kod başarıyla doğrulandı. Lütfen yeni şifrenizi belirleyin.";
+        ErrorMessage = "";
+        await Task.CompletedTask;
     }
 
     [RelayCommand]
     private async Task ConfirmResetPasswordAsync()
     {
-        if (string.IsNullOrEmpty(ResetOneTimePassword))
+        if (!IsResetCodeVerified)
         {
-            ErrorMessage = "Lütfen Telegram botundan aldığınız tek kullanımlık şifreyi girin.";
-            return;
-        }
-
-        if (ResetOneTimePassword.Trim() != _generatedOneTimePassword)
-        {
-            ErrorMessage = "Girdiğiniz tek kullanımlık şifre hatalı.";
+            ErrorMessage = "Lütfen önce doğrulama kodunu onaylayın.";
             return;
         }
 
@@ -1294,19 +1337,34 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
         try
         {
             IsBusy = true;
-            var username = string.IsNullOrWhiteSpace(ResetUsername) ? "admin" : ResetUsername.Trim().ToLower();
+            var query = (ResetUsername ?? "").Trim().ToLower();
             var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
             if (db != null)
             {
                 var conn = db.GetGlobalConnection();
-                var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == username);
+                var allUsers = await conn.Table<Models.User>().ToListAsync();
+                var user = allUsers.FirstOrDefault(u =>
+                    (!string.IsNullOrEmpty(u.Username) && u.Username.Trim().ToLower() == query) ||
+                    (!string.IsNullOrEmpty(u.Email) && u.Email.Trim().ToLower() == query));
+
                 if (user != null)
                 {
                     var salt = AuthService.GenerateSalt();
                     user.Password = AuthService.HashPassword(trimmedNewPassword, salt);
                     user.PasswordSalt = salt;
                     await conn.UpdateAsync(user);
-                    if (db.SyncService != null) await db.SyncService.SyncUserAsync(user);
+                    if (db.SyncService != null)
+                    {
+                        try
+                        {
+                            db.SyncService.ReloadConfig();
+                            if (db.SyncService.IsConnected)
+                            {
+                                await db.SyncService.SyncUserAsync(user);
+                            }
+                        }
+                        catch { }
+                    }
                     
                     ClearSavedCredentials();
 

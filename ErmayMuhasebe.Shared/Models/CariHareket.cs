@@ -37,6 +37,7 @@ namespace ErmayMuhasebe.Models
         public decimal KalanBakiye { get; set; }
         
         public string? SlipImage { get; set; } 
+        [Indexed]
         public int? FaturaId { get; set; }
         
         [Indexed]

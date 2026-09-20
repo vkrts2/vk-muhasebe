@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
 import AsyncStorage from './storage';
 import { generateMobileRecordId } from '../utils/IdGenerator';
 
@@ -208,10 +209,48 @@ export const fetchAvailableYears = async (): Promise<string[]> => {
 
 export const getIdToken = () => null;
 export const saveIdToken = async () => {};
-export const mapAppToDatabase = (path: string, val: any): any => val;
-export const mapDatabaseToApp = (path: string, val: any): any => val;
-export const mapPathToDatabase = (path: string): string => path;
-export const getCacheKey = (path: string): string => path;
+export const mapDatabaseToApp = (path: string, val: any): any => {
+  if (!val || typeof val !== 'object') return val;
+  if (Array.isArray(val)) return val.map(v => mapDatabaseToApp(path, v));
+  const res: any = {};
+  for (const k of Object.keys(val)) {
+    let appKey = k.charAt(0).toLowerCase() + k.slice(1);
+    if (k === 'Email') appKey = 'eposta';
+    else if (k === 'IBAN') appKey = 'iban';
+    else if (k === 'TCNo') appKey = 'tcNo';
+    else if (k === 'Title') appKey = 'baslik';
+    else if (k === 'Content') appKey = 'aciklama';
+    else if (k === 'KDV' && path.toLowerCase().includes('faturadetaylar')) appKey = 'kdvOrani';
+    else if (k === 'KDV') appKey = 'kdv';
+    res[appKey] = mapDatabaseToApp(path, val[k]);
+  }
+  return res;
+};
+
+export const mapAppToDatabase = (path: string, val: any): any => {
+  if (!val || typeof val !== 'object') return val;
+  if (Array.isArray(val)) return val.map(v => mapAppToDatabase(path, v));
+  const res: any = {};
+  for (const k of Object.keys(val)) {
+    let dbKey = k.charAt(0).toUpperCase() + k.slice(1);
+    if (k === 'eposta') dbKey = 'Email';
+    else if (k === 'iban') dbKey = 'IBAN';
+    else if (k === 'tcNo') dbKey = 'TCNo';
+    else if (k === 'kdvOrani' && path.toLowerCase().includes('faturadetaylar')) dbKey = 'KDVOrani';
+    else if (k === 'kdv') dbKey = 'KDV';
+    res[dbKey] = mapAppToDatabase(path, val[k]);
+  }
+  return res;
+};
+
+export const mapPathToDatabase = (path: string): string => {
+  if (path.startsWith('companies/') || path.startsWith('users/') || path.startsWith('security_requests/') || path.toLowerCase().startsWith('firmaprofili')) return path;
+  return `companies/${cachedConfig.tenantId || 'default'}/years/${cachedYear}/${path}`;
+};
+
+export const getCacheKey = (path: string): string => {
+  return `ermay_cache_${path}`;
+};
 export const fetchWithTimeout = async (url: string, opts?: any, timeoutMs?: number): Promise<Response> => fetch(url, opts);
 export const getAuthParam = (config?: any): string => '';
 
@@ -802,6 +841,12 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
 // --- CRUD Operations ---
 export const readData = async (path: string, timeoutMs = 7000): Promise<any> => {
   try {
+    if (cachedConfig.url && cachedConfig.url.includes('firebaseio.com')) {
+      const resp = await fetch(`${cachedConfig.url}/${path}.json`);
+      if (!resp.ok) return null;
+      return await resp.json();
+    }
+
     const { table, id, isDetail, foreignKey } = parsePath(path);
 
     if (isDetail && foreignKey && id) {
@@ -882,6 +927,15 @@ export const readData = async (path: string, timeoutMs = 7000): Promise<any> => 
 
 export const writeData = async (path: string, data: any): Promise<boolean> => {
   try {
+    if (cachedConfig.url && cachedConfig.url.includes('firebaseio.com')) {
+      const resp = await fetch(`${cachedConfig.url}/${path}.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return resp.ok;
+    }
+
     const { table, id, isDetail, foreignKey } = parsePath(path);
 
     if (isDetail && foreignKey && id) {
@@ -937,6 +991,13 @@ export const writeData = async (path: string, data: any): Promise<boolean> => {
 
 export const deleteData = async (path: string): Promise<boolean> => {
   try {
+    if (cachedConfig.url && cachedConfig.url.includes('firebaseio.com')) {
+      const resp = await fetch(`${cachedConfig.url}/${path}.json`, {
+        method: 'DELETE'
+      });
+      return resp.ok;
+    }
+
     const { table, id, isDetail, foreignKey } = parsePath(path);
     if (isDetail && foreignKey && id) {
       const { error } = await supabase.from(table).delete().eq(foreignKey, id);
@@ -1029,9 +1090,17 @@ export const subscribeToPath = (path: string, callback: (data: any) => void): ((
       )
       .subscribe();
 
+    let isAppActive = typeof AppState !== 'undefined' && AppState.currentState ? AppState.currentState === 'active' : true;
+    const appStateSub = typeof AppState !== 'undefined' && AppState.addEventListener ? AppState.addEventListener('change', (nextState) => {
+      isAppActive = nextState === 'active';
+      if (isAppActive && isActive) {
+        debouncedRead();
+      }
+    }) : null;
+
     // Fallback polling timer (every 15 seconds) to guarantee sync parity even if websocket misses an event
     const pollInterval = setInterval(() => {
-      if (!isActive) return;
+      if (!isActive || !isAppActive) return;
       readData(path)
         .then((data) => {
           if (isActive && data !== null) {
@@ -1045,6 +1114,9 @@ export const subscribeToPath = (path: string, callback: (data: any) => void): ((
       isActive = false;
       if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(pollInterval);
+      if (appStateSub && typeof appStateSub.remove === 'function') {
+        appStateSub.remove();
+      }
       try {
         supabase.removeChannel(channel);
       } catch (e) {

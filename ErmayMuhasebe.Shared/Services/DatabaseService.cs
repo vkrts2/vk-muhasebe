@@ -20,6 +20,7 @@ namespace ErmayMuhasebe.Services
         private static bool _sqlitePclInitialized = false;
         private static readonly object _sqlitePclLock = new();
         private readonly SemaphoreSlim _semaphore = new(1, 1);
+        private static readonly System.Text.RegularExpressions.Regex FtrNoCompiledRegex = new(@"(FTR-[\w\d]+|FAT-[\w\d]+|SF-[\w\d\-]+|AF-[\w\d\-]+)", System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         private readonly CloudSyncService _sync;
         private readonly List<IDisposable> _realtimeSubscriptions = new();
         public event Action? OnDatabaseChanged;
@@ -250,8 +251,8 @@ namespace ErmayMuhasebe.Services
                         // Test if unencrypted works
                         syncUnencrypted.ExecuteScalar<int>("SELECT count(*) FROM sqlite_master;");
                         
-                        System.Diagnostics.Debug.WriteLine("[DatabaseService] Upgrading unencrypted database to SQLCipher...");
-                        syncUnencrypted.Execute($"PRAGMA rekey = '{ErmayMuhasebe.Data.Constants.DatabasePassword}';");
+                        var cleanKey = (ErmayMuhasebe.Data.Constants.DatabasePassword ?? "").Replace("'", "''");
+                        syncUnencrypted.Execute($"PRAGMA rekey = '{cleanKey}';");
                         
                         syncUnencrypted.Close();
                         await unencryptedDb.CloseAsync();
@@ -331,6 +332,7 @@ namespace ErmayMuhasebe.Services
                 { 
                     syncDb.Execute("PRAGMA journal_mode=WAL;"); 
                     syncDb.Execute("PRAGMA synchronous=NORMAL;");
+                    syncDb.Execute("PRAGMA foreign_keys=ON;");
                 } 
                 catch { }
 
@@ -1095,23 +1097,17 @@ namespace ErmayMuhasebe.Services
         public async Task<List<CariKart>> GetHareketsizCarilerAsync(int gunSayisi = 180) 
         {
             await EnsureInitializedAsync();
-            var cariler = await _db.Table<CariKart>().Where(c => !c.IsDeleted).ToListAsync();
-            var hareketler = await _db.Table<CariHareket>().ToListAsync();
             var cutoffDate = DateTime.Now.AddDays(-gunSayisi);
-            var result = new List<CariKart>();
+            var cariler = await _db.Table<CariKart>().Where(c => !c.IsDeleted).ToListAsync();
+            // Fetch only transactions that occurred after the cutoff date to find active caris
+            var recentMovements = await _db.Table<CariHareket>().Where(h => h.Tarih >= cutoffDate).ToListAsync();
+            var activeCariIds = recentMovements.Select(h => h.CariId).ToHashSet();
 
+            var result = new List<CariKart>();
             foreach (var c in cariler)
             {
-                var lastTransaction = hareketler
-                    .Where(h => h.CariId == c.Id)
-                    .OrderByDescending(h => h.Tarih)
-                    .FirstOrDefault();
-
-                var compareDate = lastTransaction != null
-                    ? lastTransaction.Tarih
-                    : (c.KayitTarihi.Year > 2000 ? c.KayitTarihi : DateTime.MinValue);
-
-                if (compareDate < cutoffDate)
+                if (activeCariIds.Contains(c.Id)) continue;
+                if (c.KayitTarihi.Year <= 2000 || c.KayitTarihi < cutoffDate)
                 {
                     result.Add(c);
                 }
@@ -1156,54 +1152,13 @@ namespace ErmayMuhasebe.Services
 
         private async Task CleanupCariTransactionsAsync(CariKart item)
         {
-             // 1. Delete associated CariHareket records
+             // 1. Delete associated CariHareket records only
              var looseHarekets = await _db.Table<CariHareket>().Where(h => h.CariId == item.Id).ToListAsync();
              foreach (var h in looseHarekets)
              {
                  await DeleteCariHareketAsync(h);
              }
-
-             // 2. Scan for and delete orphaned Kasa/Banka transactions
-             // We look for records that explicitly have this Cari's name in 'CariUnvan' OR match the Description pattern
-             if (!string.IsNullOrEmpty(item.Unvan))
-             {
-                 var pattern = $"{item.Unvan} -"; // Pattern used in CariListViewModel: "{Unvan} - {Islem}..."
-                 
-                 // --- KASA ---
-                 // Fetch matches. Note: SQLite-net might evaluate StartsWith client-side or server-side, both fine here.
-                  var matchKasa = await _db.Table<KasaHareket>()
-                                           .Where(k => (k.CariUnvan != null && k.CariUnvan == item.Unvan) || (k.Aciklama != null && pattern != null && k.Aciklama.StartsWith(pattern)))
-                                           .ToListAsync();
-                                          
-                 foreach (var k in matchKasa)
-                 {
-                     // Restore Balance
-                     var kasa = await _db.Table<BankaKart>().FirstOrDefaultAsync(b => b.Id == k.KasaId);
-                     if (kasa != null)
-                     {
-                         kasa.GuncelBakiye -= (k.Giren - k.Cikan);
-                         await _db.UpdateAsync(kasa);
-                     }
-                     await DeleteKasaHareketAsync(k);
-                 }
-
-                 // --- BANKA ---
-                  var matchBanka = await _db.Table<BankaHareket>()
-                                            .Where(b => (b.CariUnvan != null && b.CariUnvan == item.Unvan) || (b.Aciklama != null && pattern != null && b.Aciklama.StartsWith(pattern)))
-                                            .ToListAsync();
-
-                 foreach (var b in matchBanka)
-                 {
-                     // Restore Balance
-                     var banka = await _db.Table<BankaKart>().FirstOrDefaultAsync(Bk => Bk.Id == b.BankaId);
-                     if (banka != null)
-                     {
-                         banka.GuncelBakiye -= (b.Giren - b.Cikan);
-                         await _db.UpdateAsync(banka);
-                     }
-                     await DeleteBankaHareketAsync(b);
-                 }
-             }
+             // Note: Cash (Kasa) and Bank entries are financial audit trails and are never purged by text matching.
             
             // 3. Clean up KrediKartiIslemleri
             var kkIslemler = await _db.Table<KrediKartiIslem>().Where(k => k.MusteriId == item.Id).ToListAsync();
@@ -4374,50 +4329,53 @@ namespace ErmayMuhasebe.Services
         public async Task RecalculateSystemBalancesAsync()
         {
             await EnsureInitializedAsync();
-            List<CariHareket> purgedCariMovements = new();
-            List<StokHareket> purgedStokMovements = new();
-            List<StokKart> changedStocks = new();
-            List<CariKart> changedCaris = new();
-            
-            await _db.RunInTransactionAsync(tran => 
+            await _semaphore.WaitAsync();
+            try
             {
-                // 0. CLEANUP ORPHANED MOVEMENTS
-                tran.Execute("DELETE FROM StokHareket WHERE StokId NOT IN (SELECT Id FROM StokKart WHERE IsDeleted = 0)");
-                tran.Execute("DELETE FROM CariHareket WHERE CariId NOT IN (SELECT Id FROM CariKart WHERE IsDeleted = 0)");
-
-                // Purge invoice movements where invoice does not exist or is deleted
-                var activeFaturaNos = tran.Table<Fatura>().Where(f => !f.IsDeleted).Select(f => f.FaturaNo).ToHashSet();
-                var activeFaturaIds = tran.Table<Fatura>().Where(f => !f.IsDeleted).Select(f => f.Id).ToHashSet();
-
-                var allCH = tran.Table<CariHareket>().ToList();
-                foreach (var ch in allCH)
+                List<CariHareket> purgedCariMovements = new();
+                List<StokHareket> purgedStokMovements = new();
+                List<StokKart> changedStocks = new();
+                List<CariKart> changedCaris = new();
+                
+                await _db.RunInTransactionAsync(tran => 
                 {
-                    bool isFtr = (ch.IslemTuru != null && ch.IslemTuru.Contains("Fatura")) ||
-                                 (!string.IsNullOrEmpty(ch.EvrakNo) && (ch.EvrakNo.StartsWith("FTR") || ch.EvrakNo.StartsWith("KPL-FTR") || ch.EvrakNo.StartsWith("FAT"))) ||
-                                 (!string.IsNullOrEmpty(ch.Aciklama) && (ch.Aciklama.Contains("FTR-") || ch.Aciklama.Contains("Fatura No"))) ||
-                                 (ch.FaturaId.HasValue && ch.FaturaId.Value > 0);
-                    if (!isFtr) continue;
+                    // 0. CLEANUP ORPHANED MOVEMENTS
+                    tran.Execute("DELETE FROM StokHareket WHERE StokId NOT IN (SELECT Id FROM StokKart WHERE IsDeleted = 0)");
+                    tran.Execute("DELETE FROM CariHareket WHERE CariId NOT IN (SELECT Id FROM CariKart WHERE IsDeleted = 0)");
 
-                    bool exists = false;
-                    if (ch.FaturaId.HasValue && ch.FaturaId.Value > 0 && activeFaturaIds.Contains(ch.FaturaId.Value)) exists = true;
-                    if (!exists && !string.IsNullOrEmpty(ch.EvrakNo))
-                    {
-                        string cleanNo = ch.EvrakNo.Replace("KPL-", "").Trim();
-                        if (activeFaturaNos.Any(no => no.Equals(cleanNo, StringComparison.OrdinalIgnoreCase) || no.StartsWith(cleanNo, StringComparison.OrdinalIgnoreCase) || cleanNo.StartsWith(no, StringComparison.OrdinalIgnoreCase)))
-                            exists = true;
-                    }
-                    if (!exists && !string.IsNullOrEmpty(ch.Aciklama))
-                    {
-                        var match = System.Text.RegularExpressions.Regex.Match(ch.Aciklama, @"(FTR-[\w\d]+|FAT-[\w\d]+|SF-[\w\d\-]+|AF-[\w\d\-]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        if (match.Success && activeFaturaNos.Any(no => no.Equals(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase)))
-                            exists = true;
-                    }
+                    // Purge invoice movements where invoice does not exist or is deleted
+                    var activeFaturaNos = tran.Table<Fatura>().Where(f => !f.IsDeleted).Select(f => f.FaturaNo).ToHashSet();
+                    var activeFaturaIds = tran.Table<Fatura>().Where(f => !f.IsDeleted).Select(f => f.Id).ToHashSet();
 
-                    if (!exists)
+                    var allCH = tran.Table<CariHareket>().ToList();
+                    foreach (var ch in allCH)
                     {
-                        tran.Execute("DELETE FROM CariHareket WHERE Id = ?", ch.Id);
-                        purgedCariMovements.Add(ch);
-                    }
+                        bool isFtr = (ch.IslemTuru != null && ch.IslemTuru.Contains("Fatura")) ||
+                                     (!string.IsNullOrEmpty(ch.EvrakNo) && (ch.EvrakNo.StartsWith("FTR") || ch.EvrakNo.StartsWith("KPL-FTR") || ch.EvrakNo.StartsWith("FAT"))) ||
+                                     (!string.IsNullOrEmpty(ch.Aciklama) && (ch.Aciklama.Contains("FTR-") || ch.Aciklama.Contains("Fatura No"))) ||
+                                     (ch.FaturaId.HasValue && ch.FaturaId.Value > 0);
+                        if (!isFtr) continue;
+
+                        bool exists = false;
+                        if (ch.FaturaId.HasValue && ch.FaturaId.Value > 0 && activeFaturaIds.Contains(ch.FaturaId.Value)) exists = true;
+                        if (!exists && !string.IsNullOrEmpty(ch.EvrakNo))
+                        {
+                            string cleanNo = ch.EvrakNo.Replace("KPL-", "").Trim();
+                            if (activeFaturaNos.Any(no => no.Equals(cleanNo, StringComparison.OrdinalIgnoreCase) || no.StartsWith(cleanNo, StringComparison.OrdinalIgnoreCase) || cleanNo.StartsWith(no, StringComparison.OrdinalIgnoreCase)))
+                                exists = true;
+                        }
+                        if (!exists && !string.IsNullOrEmpty(ch.Aciklama))
+                        {
+                            var match = FtrNoCompiledRegex.Match(ch.Aciklama);
+                            if (match.Success && activeFaturaNos.Any(no => no.Equals(match.Groups[1].Value, StringComparison.OrdinalIgnoreCase)))
+                                exists = true;
+                        }
+
+                        if (!exists)
+                        {
+                            tran.Execute("DELETE FROM CariHareket WHERE Id = ?", ch.Id);
+                            purgedCariMovements.Add(ch);
+                        }
                 }
 
                 // Deduplicate invoice movements (keep only 1 movement per FaturaId that matches current Fatura amount)
@@ -4605,6 +4563,11 @@ namespace ErmayMuhasebe.Services
                 await _sync.SyncCariAsync(c);
             }
         }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
 
         public async Task<string> GetNextFaturaNoAsync(string type = "Satis")
         {

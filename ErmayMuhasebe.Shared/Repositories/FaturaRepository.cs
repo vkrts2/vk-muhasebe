@@ -136,7 +136,7 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
             await _syncService.SyncCariAsync(cari);
         }
 
-        // 5. Delete Details & Movements
+        // 5. Delete Movements & Soft Delete Invoice (Preserve FaturaDetay lines for audit history)
         var relatedSh = await db.Table<StokHareket>().Where(s => s.FaturaId == entity.Id || (!string.IsNullOrEmpty(fNo) && (s.EvrakNo == fNo || s.EvrakNo == kplNo))).ToListAsync();
         var relatedCh = await db.Table<CariHareket>().Where(c => c.FaturaId == entity.Id || (!string.IsNullOrEmpty(fNo) && (c.EvrakNo == fNo || c.EvrakNo == kplNo))).ToListAsync();
 
@@ -149,17 +149,20 @@ public class FaturaRepository : BaseRepository<Fatura>, IFaturaRepository
             await _syncService.DeleteCariHareketAsync(ch.Id);
         }
 
-        await db.ExecuteAsync("DELETE FROM FaturaDetay WHERE FaturaId = ?", entity.Id);
-        await db.ExecuteAsync("DELETE FROM StokHareket WHERE FaturaId = ? OR (EvrakNo IS NOT NULL AND EvrakNo != '' AND (EvrakNo = ? OR EvrakNo = ?))", entity.Id, fNo, kplNo);
-        await db.ExecuteAsync("DELETE FROM CariHareket WHERE FaturaId = ? OR (CariId = ? AND EvrakNo IS NOT NULL AND EvrakNo != '' AND (EvrakNo = ? OR EvrakNo = ?))", entity.Id, entity.CariId, fNo, kplNo);
+        await db.RunInTransactionAsync(tran =>
+        {
+            entity.IsDeleted = true;
+            entity.UpdatedAt = DateTime.Now;
+            tran.Update(entity);
+
+            tran.Execute("DELETE FROM StokHareket WHERE FaturaId = ? OR (EvrakNo IS NOT NULL AND EvrakNo != '' AND (EvrakNo = ? OR EvrakNo = ?))", entity.Id, fNo, kplNo);
+            tran.Execute("DELETE FROM CariHareket WHERE FaturaId = ? OR (CariId = ? AND EvrakNo IS NOT NULL AND EvrakNo != '' AND (EvrakNo = ? OR EvrakNo = ?))", entity.Id, entity.CariId, fNo, kplNo);
+        });
 
         // Sync Deletions to Cloud
         await _syncService.DeleteStokHareketByFaturaIdAsync(entity.Id, entity.FaturaNo);
         await _syncService.DeleteCariHareketByFaturaIdAsync(entity.Id, entity.FaturaNo);
-        await _syncService.DeleteFaturaDetaylarAsync(entity.Id);
-        await _syncService.DeleteFaturaAsync(entity.Id);
-
-        await db.DeleteAsync(entity);
+        await _syncService.SyncFaturaAsync(entity);
 
         // 6. Clean up linked financial records (Kasa / Banka)
         if (!string.IsNullOrEmpty(fNo))

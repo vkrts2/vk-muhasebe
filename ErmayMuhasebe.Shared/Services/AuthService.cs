@@ -17,14 +17,52 @@ public class AuthService
 
     public static string HashPassword(string password, string salt)
     {
-        using var sha256 = SHA256.Create();
-        var saltedPassword = password + salt;
-        var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedPassword));
-        return Convert.ToBase64String(hashedBytes);
+        byte[] saltBytes;
+        try
+        {
+            saltBytes = Convert.FromBase64String(salt);
+        }
+        catch
+        {
+            saltBytes = Encoding.UTF8.GetBytes(salt);
+        }
+
+        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password),
+            saltBytes,
+            100_000,
+            HashAlgorithmName.SHA256,
+            32);
+        return "PBKDF2$" + Convert.ToBase64String(hash);
     }
 
     public static bool VerifyPassword(string password, string storedHash, string storedSalt)
     {
+        if (string.IsNullOrEmpty(storedHash)) return false;
+
+        if (storedHash.StartsWith("PBKDF2$"))
+        {
+            var expectedHashBase64 = storedHash.Substring("PBKDF2$".Length);
+            byte[] expectedBytes = Convert.FromBase64String(expectedHashBase64);
+            byte[] saltBytes;
+            try
+            {
+                saltBytes = !string.IsNullOrEmpty(storedSalt) ? Convert.FromBase64String(storedSalt) : new byte[16];
+            }
+            catch
+            {
+                saltBytes = Encoding.UTF8.GetBytes(storedSalt ?? "");
+            }
+
+            byte[] actualBytes = Rfc2898DeriveBytes.Pbkdf2(
+                Encoding.UTF8.GetBytes(password),
+                saltBytes,
+                100_000,
+                HashAlgorithmName.SHA256,
+                32);
+            return CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+        }
+
         if (string.IsNullOrEmpty(storedSalt))
         {
             // Backward compatibility for unsalted passwords
@@ -34,9 +72,13 @@ public class AuthService
             return hashToVerify == storedHash;
         }
 
-        var saltToUse = storedSalt;
-        var hashToVerifySalted = HashPassword(password, saltToUse);
-        return hashToVerifySalted == storedHash;
+        using (var sha256 = SHA256.Create())
+        {
+            var saltedPassword = password + storedSalt;
+            var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedPassword));
+            var hashToVerifySalted = Convert.ToBase64String(hashedBytes);
+            return hashToVerifySalted == storedHash;
+        }
     }
 
     private static readonly byte[] LegacyKey = Encoding.UTF8.GetBytes("ERMAY-SECURE-KEY-2025");
@@ -47,6 +89,13 @@ public class AuthService
     {
         try
         {
+            var customKey = Environment.GetEnvironmentVariable("ERMAY_VAULT_KEY");
+            if (!string.IsNullOrEmpty(customKey))
+            {
+                using var hmacCustom = new HMACSHA256(FallbackAesKey);
+                return hmacCustom.ComputeHash(Encoding.UTF8.GetBytes(customKey));
+            }
+
             var seed = $"{Environment.MachineName}::{Environment.UserName}::VK_SECURE_VAULT_2025";
             using var hmac = new HMACSHA256(FallbackAesKey);
             return hmac.ComputeHash(Encoding.UTF8.GetBytes(seed));

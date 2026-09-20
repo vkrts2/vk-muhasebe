@@ -163,12 +163,14 @@ Write-Host "Inno Setup Compiler: $isccPath"
 if ($LASTEXITCODE -ne 0) { throw "ISCC derlemesi basarisiz!" }
 
 # 5. Kurulum dosyasini ek isimlerle kopyala (Windows Explorer onbellegini asmak icin)
-$mainSetup = "E:\avalonia yedek\ermaymuhasebe\Publish_Output\Installer\VK_Setup_v1.0.0.exe"
+$mainSetup = "E:\avalonia yedek\ermaymuhasebe\Publish_Output\Installer\VK_On_Muhasebe_Kurulum.exe"
 $altSetup1 = "E:\avalonia yedek\ermaymuhasebe\Publish_Output\Installer\VK_Kurulum.exe"
 $altSetup2 = "E:\avalonia yedek\ermaymuhasebe\Publish_Output\Installer\VK_Setup.exe"
+$altSetup3 = "E:\avalonia yedek\ermaymuhasebe\Publish_Output\Installer\VK_Setup_v1.0.0.exe"
 
 Copy-Item $mainSetup $altSetup1 -Force
 Copy-Item $mainSetup $altSetup2 -Force
+Copy-Item $mainSetup $altSetup3 -Force
 
 Write-Host "Kurulum dosyalari hazirlandi:"
 Write-Host " - $mainSetup"

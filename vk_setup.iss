@@ -51,9 +51,27 @@ var
   EmailSmtpPage: TInputQueryWizardPage;
   User2Page: TInputQueryWizardPage;
 
+function ExtractJsonValue(const Json, Key: String): String;
+var
+  P, P2, P3: Integer;
+  SearchKey: String;
+begin
+  Result := '';
+  SearchKey := '"' + Key + '":"';
+  P := Pos(SearchKey, Json);
+  if P > 0 then
+  begin
+    P2 := P + Length(SearchKey);
+    P3 := Pos('"', Copy(Json, P2, Length(Json)));
+    if P3 > 0 then
+      Result := Copy(Json, P2, P3 - 1);
+  end;
+end;
+
 procedure InitializeWizard;
 var
   GuideText: String;
+  ExistingCloudConfig: AnsiString;
 begin
   // 1. Bilgilendirme / Rehber Ekranı
   GuideText := 
@@ -83,6 +101,17 @@ begin
   SupabasePage.Add('Supabase Anon / API Anahtarı (anon public key):', False);
   SupabasePage.Values[0] := '';
   SupabasePage.Values[1] := '';
+
+  // Sistemde kayıtlı mevcut Supabase yapılandırması varsa otomatik doldur
+  ExistingCloudConfig := '';
+  if FileExists(ExpandConstant('{localappdata}') + '\ermay_cloud_config.json') then
+  begin
+    if LoadStringFromFile(ExpandConstant('{localappdata}') + '\ermay_cloud_config.json', ExistingCloudConfig) then
+    begin
+      SupabasePage.Values[0] := ExtractJsonValue(String(ExistingCloudConfig), 'BaseUrl');
+      SupabasePage.Values[1] := ExtractJsonValue(String(ExistingCloudConfig), 'AuthSecret');
+    end;
+  end;
 
   // 3. Kullanıcı 1 (Ana Yönetici) ve Sistem Sıfırlama Şifresi Belirleme Sayfası
   User1Page := CreateInputQueryPage(SupabasePage.ID,
@@ -149,7 +178,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  SupabaseUrlVal, SupabaseKeyVal, SmtpEmailVal, SmtpPassVal, User1Name, User1Pass, User1Email, User2Name, User2Pass, User2Email, FactoryResetPass, AppDataDir, ConfigPath, UserConfigPath, JsonContent, UserJsonContent: String;
+  SupabaseUrlVal, SupabaseKeyVal, SmtpEmailVal, SmtpPassVal, User1Name, User1Pass, User1Email, User2Name, User2Pass, User2Email, FactoryResetPass, AppDataDir, ConfigPath, UserConfigPath, JsonContent, UserJsonContent, ScriptFile, ScriptContent: String;
+  ExistingCloudConfig: AnsiString;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
@@ -176,6 +206,19 @@ begin
     // 0. Temiz Kurulum: Veritabanı ve Bütün Eski Yapılandırmayı Sıfırla
     if WizardIsTaskSelected('cleandatabase') then
     begin
+      // Form kutucukları boş bırakılmışsa mevcut dosyadan oku
+      if (SupabaseUrlVal = '') or (SupabaseKeyVal = '') then
+      begin
+        if FileExists(AppDataDir + '\ermay_cloud_config.json') then
+        begin
+          if LoadStringFromFile(AppDataDir + '\ermay_cloud_config.json', ExistingCloudConfig) then
+          begin
+            if SupabaseUrlVal = '' then SupabaseUrlVal := ExtractJsonValue(String(ExistingCloudConfig), 'BaseUrl');
+            if SupabaseKeyVal = '' then SupabaseKeyVal := ExtractJsonValue(String(ExistingCloudConfig), 'AuthSecret');
+          end;
+        end;
+      end;
+
       Exec('taskkill.exe', '/F /IM VK.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Exec('taskkill.exe', '/F /IM ErmayMuhasebe.Desktop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Sleep(1000);
@@ -187,24 +230,32 @@ begin
       DeleteFile(AppDataDir + '\ErmayMuhasebe\company_logo.png');
       DeleteFile(AppDataDir + '\ermay_cloud_config.json');
 
-      // Supabase bulut veritabanını da temizle (eski test verilerinin geri gelmesini engelle)
+      // Supabase bulut veritabanını da yabancı anahtar kısıtlamalarına uygun sırada (çocuk -> ana) temizle
       if (SupabaseUrlVal <> '') and (SupabaseKeyVal <> '') then
       begin
-        Exec('powershell.exe',
-          '-NoProfile -ExecutionPolicy Bypass -Command "' +
-          '$tables = @(''cari_hareketler'',''cariler'',''stok_hareketler'',''stoklar'',' +
-          '''fatura_detaylar'',''faturalar'',''siparis_detaylar'',''siparisler'',' +
-          '''teklif_detaylar'',''teklifler'',''banka_hareketler'',''bankalar'',' +
-          '''kasa_hareketler'',''kasalar'',''cekler'',''senetler'',' +
-          '''kredi_karti_islemler'',''eft_islemler'',''doviz_kurlari'',''belge_arsiv'',' +
-          '''notlar'',''gorevler'',''personeller'',''firma_profili'',' +
-          '''satis_hedefleri'',''haftalik_satis_hedefleri'',''yillik_satis_hedefleri'',' +
-          '''stok_sayim_fisileri'',''stok_sayim_detaylari'',''portfoy_kartlar'',' +
-          '''musteri_takip_klasorler'',''musteri_takip_detaylar''); ' +
-          '$h = @{apikey=''' + SupabaseKeyVal + '''; Authorization=''Bearer ' + SupabaseKeyVal + '''}; ' +
-          'foreach($t in $tables){ try{ Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/'' + $t + ''?id=gte.0'') -Method Delete -Headers $h -ErrorAction SilentlyContinue }catch{} }; ' +
-          'Write-Host ''Supabase temizlendi.''"',
-          '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+        ScriptFile := ExpandConstant('{tmp}\clean_supabase.ps1');
+        ScriptContent :=
+          '$ErrorActionPreference = ''SilentlyContinue''' + #13#10 +
+          '$headers = @{ apikey = ''' + SupabaseKeyVal + '''; Authorization = ''Bearer ' + SupabaseKeyVal + ''' }' + #13#10 +
+          '$tables = @(' + #13#10 +
+          '  ''fatura_detaylar'',''siparis_detaylar'',''teklif_detaylar'',''stok_sayim_detaylari'',''musteri_takip_detaylar'',' + #13#10 +
+          '  ''cari_hareketler'',''stok_hareketler'',''banka_hareketler'',''kasa_hareketler'',''kredi_karti_islemler'',''eft_islemler'',' + #13#10 +
+          '  ''cekler'',''senetler'',''faturalar'',''siparisler'',''teklifler'',''stok_sayim_fisileri'',''musteri_takip_klasorler'',' + #13#10 +
+          '  ''stoklar'',''cariler'',''bankalar'',''kasalar'',''doviz_kurlari'',''belge_arsiv'',''notlar'',''gorevler'',''personeller'',' + #13#10 +
+          '  ''satis_hedefleri'',''haftalik_satis_hedefleri'',''yillik_satis_hedefleri'',''portfoy_kartlar'',''firma_profili'',''kullanicilar''' + #13#10 +
+          ')' + #13#10 +
+          'for ($pass = 1; $pass -le 3; $pass++) {' + #13#10 +
+          '  foreach ($t in $tables) {' + #13#10 +
+          '    try {' + #13#10 +
+          '      Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/'' + $t + ''?id=gte.0'') -Method Delete -Headers $headers' + #13#10 +
+          '    } catch {}' + #13#10 +
+          '  }' + #13#10 +
+          '}' + #13#10 +
+          'Get-ChildItem -Path ''' + AppDataDir + '\ErmayMuhasebe'' -Filter ''*.db*'' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue' + #13#10;
+
+        SaveStringToFile(ScriptFile, ScriptContent, False);
+        Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+        DeleteFile(ScriptFile);
       end;
     end;
     
@@ -245,5 +296,29 @@ begin
       '"SmtpPass":"' + SmtpPassVal + '"}';
       
     SaveStringToFile(UserConfigPath, UserJsonContent, False);
+
+    // 3. Kullanıcı Bilgilerini Doğrudan Supabase Bulutuna Kaydet
+    if (SupabaseUrlVal <> '') and (SupabaseKeyVal <> '') and (User1Name <> '') then
+    begin
+      ScriptFile := ExpandConstant('{tmp}\sync_user_supabase.ps1');
+      ScriptContent :=
+        '$ErrorActionPreference = ''SilentlyContinue''' + #13#10 +
+        '$headers = @{ apikey = ''' + SupabaseKeyVal + '''; Authorization = ''Bearer ' + SupabaseKeyVal + '''; Prefer = ''resolution=merge-duplicates''; ''Content-Type'' = ''application/json'' }' + #13#10 +
+        '$u1 = ''' + User1Name + '''.Trim().ToLower()' + #13#10 +
+        '$payload1 = @{ id = $u1; username = $u1; kullanici_adi = $u1; email = ''' + User1Email + '''; role = ''Admin''; rol = ''Admin''; is_active = $true; aktif_mi = $true; password_hash = ''temporary''; sifre = ''temporary'' } | ConvertTo-Json' + #13#10 +
+        'Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/kullanicilar'') -Method Post -Headers $headers -Body $payload1' + #13#10;
+        
+      if (User2Name <> '') then
+      begin
+        ScriptContent := ScriptContent +
+          '$u2 = ''' + User2Name + '''.Trim().ToLower()' + #13#10 +
+          '$payload2 = @{ id = $u2; username = $u2; kullanici_adi = $u2; email = ''' + User2Email + '''; role = ''Admin''; rol = ''Admin''; is_active = $true; aktif_mi = $true; password_hash = ''temporary''; sifre = ''temporary'' } | ConvertTo-Json' + #13#10 +
+          'Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/kullanicilar'') -Method Post -Headers $headers -Body $payload2' + #13#10;
+      end;
+      
+      SaveStringToFile(ScriptFile, ScriptContent, False);
+      Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      DeleteFile(ScriptFile);
+    end;
   end;
 end;

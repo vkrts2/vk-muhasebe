@@ -350,7 +350,6 @@ public partial class MainViewModel : ViewModelBase
     public StatusBarSettings CurrentSettings => StatusService.Settings;
 
     private readonly ErmayMuhasebe.Services.DovizService _dovizService;
-    private DispatcherTimer? _searchTimer;
     private DispatcherTimer? _cronTimer;
     private readonly SemaphoreSlim _syncSemaphore = new(1, 1);
     private readonly DispatcherTimer _liveUpdateTimer;

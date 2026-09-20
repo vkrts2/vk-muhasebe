@@ -24,12 +24,15 @@ namespace ErmayMuhasebe.Services
     {
         private readonly CloudSyncService _cloudSyncService;
 
+#pragma warning disable CS0067
         public event Action<string>? OnRequestStatusChanged; // PENDING, APPROVED, REJECTED, EXPIRED
         public event Action? OnSessionRevoked;
+#pragma warning restore CS0067
 
         public SecuritySyncService(CloudSyncService cloudSyncService)
         {
             _cloudSyncService = cloudSyncService;
+            _ = _cloudSyncService;
         }
 
         public void ListenToSecurityRequest(string requestId)
@@ -44,13 +47,43 @@ namespace ErmayMuhasebe.Services
 
         public async Task<string> CreateSecurityRequestAsync(string userId, string type, string newValue)
         {
-            await Task.CompletedTask;
-            return Guid.NewGuid().ToString("N");
+            var requestId = Guid.NewGuid().ToString("N");
+            var req = new SecurityRequest
+            {
+                RequestId = requestId,
+                Uid = userId,
+                Type = type,
+                Status = "PENDING",
+                NewValue = newValue,
+                CreatedAt = DateTime.UtcNow.ToString("o"),
+                ExpiresAt = DateTime.UtcNow.AddHours(24).ToString("o")
+            };
+
+            if (_cloudSyncService.IsConnected)
+            {
+                await _cloudSyncService.UpsertPayloadAsync("security_requests", req);
+            }
+
+            return requestId;
         }
 
         public async Task UpdateUserSecurityStateAsync(string userId)
         {
-            await Task.CompletedTask;
+            var state = new UserSecurityState
+            {
+                LastPasswordChange = DateTime.UtcNow.ToString("o"),
+                ActiveSessionsRevokedAt = DateTime.UtcNow.ToString("o")
+            };
+
+            if (_cloudSyncService.IsConnected)
+            {
+                await _cloudSyncService.UpsertPayloadAsync("user_security_states", new
+                {
+                    user_id = userId,
+                    last_password_change = state.LastPasswordChange,
+                    active_sessions_revoked_at = state.ActiveSessionsRevokedAt
+                });
+            }
         }
 
         public void StopListeners()
