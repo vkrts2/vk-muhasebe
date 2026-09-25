@@ -13,31 +13,3 @@ declare module 'expo-file-system/legacy' {
   export default _default;
 }
 
-declare module 'expo' {
-  export const registerRootComponent: any;
-  const _default: any;
-  export default _default;
-}
-
-declare module '@react-navigation/native' {
-  export const NavigationContainer: any;
-  export function useNavigation<T = any>(): T;
-  export function useRoute<T = any>(): T;
-  export function useIsFocused(): boolean;
-  export const DefaultTheme: any;
-  export const DarkTheme: any;
-  const _default: any;
-  export default _default;
-}
-
-declare module '@react-navigation/native-stack' {
-  export const createNativeStackNavigator: any;
-  const _default: any;
-  export default _default;
-}
-
-declare module '@react-navigation/bottom-tabs' {
-  export const createBottomTabNavigator: any;
-  const _default: any;
-  export default _default;
-}
