@@ -264,24 +264,39 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.id !== undefined) p.id = Number(data.id) || data.id;
     p.cari_kodu = data.cariKodu || data.cariKod || data.kod || data.cari_kodu || '';
     p.unvan = data.unvan || '';
+    if (data.tur !== undefined) p.tur = data.tur;
     if (data.vergiDairesi !== undefined || data.vergi_dairesi !== undefined) p.vergi_dairesi = data.vergiDairesi ?? data.vergi_dairesi;
     if (data.vergiNo !== undefined || data.vergi_no !== undefined) p.vergi_no = data.vergiNo ?? data.vergi_no;
     if (data.tcNo !== undefined || data.tcKimlikNo !== undefined || data.tc_kimlik_no !== undefined) p.tc_kimlik_no = data.tcNo ?? data.tcKimlikNo ?? data.tc_kimlik_no;
+    if (data.ticaretSicilNo !== undefined || data.ticaret_sicil_no !== undefined) p.ticaret_sicil_no = data.ticaretSicilNo ?? data.ticaret_sicil_no;
     if (data.adres !== undefined) p.adres = data.adres;
+    if (data.sevkAdresi !== undefined || data.sevk_adresi !== undefined) p.sevk_adresi = data.sevkAdresi ?? data.sevk_adresi;
     p.sehir = data.sehir || data.il || '';
     if (data.ilce !== undefined) p.ilce = data.ilce;
+    if (data.postaKodu !== undefined || data.posta_kodu !== undefined) p.posta_kodu = data.postaKodu ?? data.posta_kodu;
+    if (data.ulke !== undefined) p.ulke = data.ulke;
     if (data.telefon !== undefined) p.telefon = data.telefon;
-    if (data.telefon2 !== undefined || data.cepTelefon !== undefined) p.telefon2 = data.telefon2 ?? data.cepTelefon;
+    if (data.telefon2 !== undefined || data.cepTelefon !== undefined || data.cep_telefon !== undefined) p.telefon2 = data.telefon2 ?? data.cepTelefon ?? data.cep_telefon;
     p.yetkili_kisi = data.yetkiliKisi || data.yetkili || data.yetkili_kisi || '';
     p.email = data.email || data.eposta || '';
     p.web_sitesi = data.webSitesi || data.webAdresi || data.web_sitesi || '';
+    if (data.iban !== undefined || data.iBAN !== undefined) p.iban = data.iban ?? data.iBAN;
+    if (data.odemePlani !== undefined || data.odeme_plani !== undefined) p.odeme_plani = data.odemePlani ?? data.odeme_plani;
+    if (data.aciklama !== undefined) p.aciklama = data.aciklama;
     p.bakiye = Number(data.bakiye) || 0;
     p.borc_tutari = Number(data.borcTutari ?? data.borc ?? data.borc_tutari) || 0;
     p.alacak_tutari = Number(data.alacakTutari ?? data.alacak ?? data.alacak_tutari) || 0;
-    if (data.krediLimiti !== undefined || data.riskLimiti !== undefined) p.kredi_limiti = Number(data.krediLimiti ?? data.riskLimiti) || 0;
-    if (data.vadeGun !== undefined || data.vadeGunu !== undefined) p.vade_gun = Number(data.vadeGun ?? data.vadeGunu) || 0;
+    p.devir_borc = Number(data.devirBorc ?? data.devir_borc) || 0;
+    p.devir_alacak = Number(data.devirAlacak ?? data.devir_alacak) || 0;
+    if (data.krediLimiti !== undefined || data.riskLimiti !== undefined || data.risk_limiti !== undefined) p.kredi_limiti = Number(data.krediLimiti ?? data.riskLimiti ?? data.risk_limiti) || 0;
+    if (data.vadeGun !== undefined || data.vadeGunu !== undefined || data.vade_gunu !== undefined) p.vade_gun = Number(data.vadeGun ?? data.vadeGunu ?? data.vade_gunu) || 0;
     if (data.grup !== undefined) p.grup = data.grup;
-    p.is_active = data.isActive !== false && data.is_active !== false;
+    if (data.latitude !== undefined) p.latitude = data.latitude;
+    if (data.longitude !== undefined) p.longitude = data.longitude;
+    if (data.riskTakibiYapilsin !== undefined || data.risk_takibi_yapilsin !== undefined) p.risk_takibi_yapilsin = data.riskTakibiYapilsin ?? data.risk_takibi_yapilsin;
+    if (data.vadeGecmisteEngelle !== undefined || data.vade_gecmiste_engelle !== undefined) p.vade_gecmiste_engelle = data.vadeGecmisteEngelle ?? data.vade_gecmiste_engelle;
+    if (data.faturadaRiskKontrolu !== undefined || data.faturada_risk_kontrolu !== undefined) p.faturada_risk_kontrolu = data.faturadaRiskKontrolu ?? data.faturada_risk_kontrolu;
+    p.is_active = data.isActive !== false && data.is_active !== false && data.aktifMi !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     p.guncelleme_tarihi = new Date().toISOString();
     return p;
@@ -297,6 +312,8 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.birim = data.birim || 'Adet';
     p.alis_fiyati = Number(data.alisFiyati ?? data.alis_fiyati) || 0;
     p.satis_fiyati = Number(data.satisFiyati ?? data.satis_fiyati) || 0;
+    if (data.ortalamaAlisFiyati !== undefined || data.ortalama_alis_fiyati !== undefined) p.ortalama_alis_fiyati = Number(data.ortalamaAlisFiyati ?? data.ortalama_alis_fiyati) || 0;
+    if (data.ortalamaSatisFiyati !== undefined || data.ortalama_satis_fiyati !== undefined) p.ortalama_satis_fiyati = Number(data.ortalamaSatisFiyati ?? data.ortalama_satis_fiyati) || 0;
     p.kdv_orani = Number(data.kdvOrani ?? data.kdv ?? data.kdv_orani) || 20;
     p.mevcut_miktar = Number(data.mevcutMiktar ?? data.miktar ?? data.mevcut_miktar) || 0;
     p.kritik_seviye = Number(data.kritikSeviye ?? data.minSeviye ?? data.kritik_seviye) || 0;
@@ -324,6 +341,16 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.is_kapali = data.isKapali === true || data.is_kapali === true || (Number(p.genel_toplam) > 0 && Number(data.odenen) >= Number(p.genel_toplam));
     if (data.kasaId !== undefined || data.kasa_id !== undefined) p.kasa_id = Number(data.kasaId ?? data.kasa_id) || null;
     if (data.bankaId !== undefined || data.banka_id !== undefined) p.banka_id = Number(data.bankaId ?? data.banka_id) || null;
+    if (data.odemeSekli !== undefined || data.odeme_sekli !== undefined) p.odeme_sekli = data.odemeSekli ?? data.odeme_sekli;
+    if (data.baglantiEvrakNo !== undefined || data.baglanti_evrak_no !== undefined) p.baglanti_evrak_no = data.baglantiEvrakNo ?? data.baglanti_evrak_no;
+    if (data.isEArsiv !== undefined || data.is_earsiv !== undefined) p.is_earsiv = data.isEArsiv ?? data.is_earsiv;
+    if (data.dovizTuru !== undefined || data.doviz_turu !== undefined) p.doviz_turu = data.dovizTuru ?? data.doviz_turu;
+    if (data.dovizKuru !== undefined || data.doviz_kuru !== undefined) p.doviz_kuru = Number(data.dovizKuru ?? data.doviz_kuru) || 0;
+    if (data.iptalMi !== undefined || data.iptal_mi !== undefined) p.iptal_mi = data.iptalMi ?? data.iptal_mi;
+    if (data.odenen !== undefined) p.odenen = Number(data.odenen) || 0;
+    if (data.vergiDairesi !== undefined || data.vergi_dairesi !== undefined) p.vergi_dairesi = data.vergiDairesi ?? data.vergi_dairesi;
+    if (data.vergiNo !== undefined || data.vergi_no !== undefined) p.vergi_no = data.vergiNo ?? data.vergi_no;
+    if (data.adres !== undefined) p.adres = data.adres;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     p.guncelleme_tarihi = new Date().toISOString();
     return p;
@@ -366,6 +393,10 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     if (data.kasaId !== undefined || data.kasa_id !== undefined) p.kasa_id = Number(data.kasaId ?? data.kasa_id) || null;
     if (data.bankaId !== undefined || data.banka_id !== undefined) p.banka_id = Number(data.bankaId ?? data.banka_id) || null;
     if (data.odemeTuru !== undefined || data.odeme_turu !== undefined) p.odeme_turu = data.odemeTuru ?? data.odeme_turu;
+    if (data.slipImage !== undefined || data.slip_image !== undefined) p.slip_image = data.slipImage ?? data.slip_image;
+    if (data.refId !== undefined || data.ref_id !== undefined) p.ref_id = data.refId ?? data.ref_id;
+    if (data.yonlendirilenCariId !== undefined || data.yonlendirilen_cari_id !== undefined) p.yonlendirilen_cari_id = data.yonlendirilenCariId ?? data.yonlendirilen_cari_id;
+    if (data.yonlendirilenCariUnvan !== undefined || data.yonlendirilen_cari_unvan !== undefined) p.yonlendirilen_cari_unvan = data.yonlendirilenCariUnvan ?? data.yonlendirilen_cari_unvan;
     p.para_birimi = data.paraBirimi || data.para_birimi || 'TRY';
     return p;
   }
@@ -398,6 +429,7 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.bakiye = Number(data.bakiye) || 0;
     p.para_birimi = data.paraBirimi || data.dovizTuru || data.para_birimi || 'TRY';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    p.kart_turu = data.kartTuru || data.kart_turu || '';
     p.is_active = data.isActive !== false && data.is_active !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
@@ -499,6 +531,10 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
     p.durum = data.durum || 'Bekliyor';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    if (data.odemeBilgisi !== undefined || data.odeme_bilgisi !== undefined) p.odeme_bilgisi = data.odemeBilgisi ?? data.odeme_bilgisi;
+    if (data.oncelik !== undefined) p.oncelik = data.oncelik;
+    if (data.baglantiEvrakNo !== undefined || data.baglanti_evrak_no !== undefined) p.baglanti_evrak_no = data.baglantiEvrakNo ?? data.baglanti_evrak_no;
+    if (data.pdfNotlar !== undefined || data.pdf_notlar !== undefined) p.pdf_notlar = data.pdfNotlar ?? data.pdf_notlar;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
@@ -533,6 +569,7 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
     p.durum = data.durum || 'Bekliyor';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    if (data.odemeBilgisi !== undefined || data.odeme_bilgisi !== undefined) p.odeme_bilgisi = data.odemeBilgisi ?? data.odeme_bilgisi;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
