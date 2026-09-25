@@ -11,7 +11,7 @@ AppId={{721355AD-4DFD-4B91-A50F-7A3B2EEBA60D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={userpf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=Publish_Output\Installer
@@ -48,7 +48,6 @@ var
   InfoPage: TOutputMsgWizardPage;
   SupabasePage: TInputQueryWizardPage;
   User1Page: TInputQueryWizardPage;
-  EmailSmtpPage: TInputQueryWizardPage;
   User2Page: TInputQueryWizardPage;
 
 function ExtractJsonValue(const Json, Key: String): String;
@@ -80,10 +79,8 @@ begin
     '   - Kurulum esnasında kendi Supabase proje URL ve Anon API anahtarınızı girerek bulut senkronizasyonunu başlatabilirsiniz.' + #13#10 + #13#10 +
     '📌 2. YÖNETİCİ HESABI BELİRLEME:' + #13#10 +
     '   - Sisteme ilk girişte kullanacağınız yönetici kullanıcı adı ve şifrenizi belirleyebilirsiniz.' + #13#10 + #13#10 +
-    '📌 3. GMAIL İLE ŞİFRE SIFIRLAMA (İSTEĞE BAĞLI):' + #13#10 +
-    '   - Şifre kurtarma e-postaları için Gmail uygulama şifresi tanımlayabilirsiniz.' + #13#10 + #13#10 +
-    '📌 4. FABRİKA AYARLARI & SIFIRLAMA GÜVENLİK ŞİFRESİ:' + #13#10 +
-    '   - Sistemi tamamen sıfırlama yetkisi için özel şifreniz (Varsayılan: VK2026).' + #13#10 + #13#10 +
+    '📌 3. FABRİKA AYARLARI & SIFIRLAMA GÜVENLİK ŞİFRESİ:' + #13#10 +
+    '   - Sistemi sıfırlama, kullanıcı adı ve şifre değiştirme yetkisi için sizin belirleyeceğiniz onay şifreniz.' + #13#10 + #13#10 +
     'Kurulum sonrası program hemen açılacaktır.';
 
   InfoPage := CreateOutputMsgPage(wpSelectDir,
@@ -122,22 +119,15 @@ begin
   User1Page.Add('Yönetici Kullanıcı Adı (Zorunlu):', False);
   User1Page.Add('Yönetici Giriş Şifresi (Zorunlu):', True);
   User1Page.Add('Yönetici E-Posta Adresi (Şifre kurtarma için):', False);
-  User1Page.Add('Fabrika Ayarları Sıfırlama Onay Şifresi:', True);
+  User1Page.Add('Fabrika Ayarları Sıfırlama Onay Şifresi (Zorunlu):', True);
   User1Page.Values[0] := '';
   User1Page.Values[1] := '';
-  User1Page.Values[3] := 'VK2026';
+  User1Page.Values[3] := '';
 
-  // 4. Gmail / SMTP E-Posta Yapılandırma Sayfası (İsteğe bağlı)
-  EmailSmtpPage := CreateInputQueryPage(User1Page.ID,
-    'E-Posta & Şifre Sıfırlama Bildirimleri (İsteğe Bağlı)',
-    'Şifre unutulduğunda e-posta ile kurtarma kodu göndermek için Gmail SMTP bilgilerinizi girebilirsiniz.',
-    'Bu adımı boş bırakıp doğrudan devam edebilirsiniz:');
-
-  EmailSmtpPage.Add('Gönderici Gmail / E-Posta Adresi (örn: muhasebe@gmail.com):', False);
-  EmailSmtpPage.Add('Gmail 16 Haneli Uygulama Şifresi (App Password):', True);
+  // (SMTP sayfası tamamen kaldırıldı)
 
   // 5. Kullanıcı 2 (Ek Personel / Yedek Kullanıcı) Belirleme Sayfası
-  User2Page := CreateInputQueryPage(EmailSmtpPage.ID,
+  User2Page := CreateInputQueryPage(User1Page.ID,
     'Kullanıcı Hesabı 2 (Opsiyonel İkinci Kullanıcı)',
     'Programa erişebilecek 2. Kullanıcıyı tanımlayabilirsiniz (İstemiyorsanız boş bırakabilirsiniz).',
     'Ek kullanıcı bilgileri:');
@@ -172,13 +162,18 @@ begin
     begin
       MsgBox('Lütfen sisteme giriş için bir Yönetici Kullanıcı Adı ve Şifre belirleyiniz.', mbError, MB_OK);
       Result := False;
+    end
+    else if Trim(User1Page.Values[3]) = '' then
+    begin
+      MsgBox('Lütfen Fabrika Ayarları Sıfırlama Onay Şifresini belirleyiniz.', mbError, MB_OK);
+      Result := False;
     end;
   end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  SupabaseUrlVal, SupabaseKeyVal, SmtpEmailVal, SmtpPassVal, User1Name, User1Pass, User1Email, User2Name, User2Pass, User2Email, FactoryResetPass, AppDataDir, ConfigPath, UserConfigPath, JsonContent, UserJsonContent, ScriptFile, ScriptContent: String;
+  SupabaseUrlVal, SupabaseKeyVal, SmtpHostVal, SmtpPortVal, SmtpEmailVal, SmtpPassVal, User1Name, User1Pass, User1Email, User2Name, User2Pass, User2Email, FactoryResetPass, AppDataDir, ConfigPath, UserConfigPath, JsonContent, UserJsonContent, ScriptFile, ScriptContent: String;
   ExistingCloudConfig: AnsiString;
   ResultCode: Integer;
 begin
@@ -186,9 +181,6 @@ begin
   begin
     SupabaseUrlVal := Trim(SupabasePage.Values[0]);
     SupabaseKeyVal := Trim(SupabasePage.Values[1]);
-
-    SmtpEmailVal := Trim(EmailSmtpPage.Values[0]);
-    SmtpPassVal := Trim(EmailSmtpPage.Values[1]);
     
     User1Name := Trim(User1Page.Values[0]);
     User1Pass := Trim(User1Page.Values[1]);
@@ -199,7 +191,6 @@ begin
     User2Email := Trim(User2Page.Values[2]);
 
     FactoryResetPass := Trim(User1Page.Values[3]);
-    if FactoryResetPass = '' then FactoryResetPass := 'VK2026';
 
     AppDataDir := ExpandConstant('{localappdata}');
     
@@ -219,23 +210,25 @@ begin
         end;
       end;
 
-      Exec('taskkill.exe', '/F /IM VK.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('taskkill.exe', '/F /IM ErmayMuhasebe.Desktop.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Sleep(1000);
+      ScriptFile := ExpandConstant('{tmp}\clean_install.ps1');
+      ScriptContent :=
+        '$ErrorActionPreference = ''SilentlyContinue''' + #13#10 +
+        'Get-Process -Name ''VK'',''ErmayMuhasebe*'',''ErmayMuhasebe.Desktop'',''ErmayMuhasebe.Avalonia.Desktop'' -ErrorAction SilentlyContinue | Stop-Process -Force' + #13#10 +
+        'Start-Sleep -Milliseconds 1000' + #13#10 +
+        '$appDir = ''' + AppDataDir + '\ErmayMuhasebe''' + #13#10 +
+        'if (Test-Path $appDir) {' + #13#10 +
+        '  Get-ChildItem -Path $appDir -File -ErrorAction SilentlyContinue | ForEach-Object {' + #13#10 +
+        '    if ($_.Name -like ''*.db*'' -or $_.Name -like ''*.db3*'' -or $_.Name -like ''*.wal'' -or $_.Name -like ''*.shm'' -or $_.Name -like ''*.json'' -or $_.Name -eq ''login_settings.txt'' -or $_.Name -eq ''company_logo.png'') {' + #13#10 +
+        '      Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue' + #13#10 +
+        '    }' + #13#10 +
+        '  }' + #13#10 +
+        '}' + #13#10 +
+        'Remove-Item -Path ''' + AppDataDir + '\ermay_cloud_config.json'' -Force -ErrorAction SilentlyContinue' + #13#10;
 
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db*');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.db3*');
-      DeleteFilesByPattern(AppDataDir + '\ErmayMuhasebe', '*.json');
-      DeleteFile(AppDataDir + '\ErmayMuhasebe\login_settings.txt');
-      DeleteFile(AppDataDir + '\ErmayMuhasebe\company_logo.png');
-      DeleteFile(AppDataDir + '\ermay_cloud_config.json');
-
-      // Supabase bulut veritabanını da yabancı anahtar kısıtlamalarına uygun sırada (çocuk -> ana) temizle
+      // Supabase bulut veritabanını da temizle
       if (SupabaseUrlVal <> '') and (SupabaseKeyVal <> '') then
       begin
-        ScriptFile := ExpandConstant('{tmp}\clean_supabase.ps1');
-        ScriptContent :=
-          '$ErrorActionPreference = ''SilentlyContinue''' + #13#10 +
+        ScriptContent := ScriptContent +
           '$headers = @{ apikey = ''' + SupabaseKeyVal + '''; Authorization = ''Bearer ' + SupabaseKeyVal + ''' }' + #13#10 +
           '$tables = @(' + #13#10 +
           '  ''fatura_detaylar'',''siparis_detaylar'',''teklif_detaylar'',''stok_sayim_detaylari'',''musteri_takip_detaylar'',' + #13#10 +
@@ -250,13 +243,12 @@ begin
           '      Invoke-RestMethod -Uri (''' + SupabaseUrlVal + '/rest/v1/'' + $t + ''?id=gte.0'') -Method Delete -Headers $headers' + #13#10 +
           '    } catch {}' + #13#10 +
           '  }' + #13#10 +
-          '}' + #13#10 +
-          'Get-ChildItem -Path ''' + AppDataDir + '\ErmayMuhasebe'' -Filter ''*.db*'' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue' + #13#10;
-
-        SaveStringToFile(ScriptFile, ScriptContent, False);
-        Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        DeleteFile(ScriptFile);
+          '}' + #13#10;
       end;
+
+      SaveStringToFile(ScriptFile, ScriptContent, False);
+      Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      DeleteFile(ScriptFile);
     end;
     
     // 1. Supabase Bulut Yapılandırma Dosyasını Kaydet
@@ -291,9 +283,7 @@ begin
     UserJsonContent := UserJsonContent +
       '"FactoryResetPassword":"' + FactoryResetPass + '",' +
       '"GoogleClientId":"",' +
-      '"GoogleClientSecret":"",' +
-      '"SmtpEmail":"' + SmtpEmailVal + '",' +
-      '"SmtpPass":"' + SmtpPassVal + '"}';
+      '"GoogleClientSecret":""}';
       
     SaveStringToFile(UserConfigPath, UserJsonContent, False);
 

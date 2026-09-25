@@ -30,6 +30,12 @@
       "ios": {
         "simulator": false
       }
+    },
+    "store": {
+      "distribution": "store",
+      "ios": {
+        "simulator": false
+      }
     }
   },
   "submit": {

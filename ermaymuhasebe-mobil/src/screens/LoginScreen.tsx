@@ -299,32 +299,8 @@ export default function LoginScreen({ onLoginSuccess, mode: initialMode = 'confi
             {mode === 'config' ? (
               /* CONFIG MODE FORM (Supabase Bulut Kurulumu) */
               <View>
-                {/* Sekme Butonları */}
-                <View style={styles.tabContainer}>
-                  <TouchableOpacity
-                    style={[styles.tabButton, activeConfigTab === 'cloud' && styles.tabButtonActive]}
-                    onPress={() => setActiveConfigTab('cloud')}
-                  >
-                    <Globe color={activeConfigTab === 'cloud' ? '#0061FF' : '#94A3B8'} size={16} style={{ marginRight: 6 }} />
-                    <Text style={[styles.tabButtonText, activeConfigTab === 'cloud' && styles.tabButtonTextActive]}>
-                      Bulut Veritabanı
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.tabButton, activeConfigTab === 'smtp' && styles.tabButtonActive]}
-                    onPress={() => setActiveConfigTab('smtp')}
-                  >
-                    <Mail color={activeConfigTab === 'smtp' ? '#0061FF' : '#94A3B8'} size={16} style={{ marginRight: 6 }} />
-                    <Text style={[styles.tabButtonText, activeConfigTab === 'smtp' && styles.tabButtonTextActive]}>
-                      E-Posta (SMTP)
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* 1. SEKME: SUPABASE BULUT */}
-                {activeConfigTab === 'cloud' && (
-                  <View>
+                {/* SUPABASE BULUT VE KULLANICI BİLGİLERİ */}
+                <View>
                     <View style={styles.inputGroup}>
                       <View style={styles.labelRow}>
                         <Link color="#64748B" size={16} />
@@ -388,50 +364,6 @@ export default function LoginScreen({ onLoginSuccess, mode: initialMode = 'confi
                       />
                     </View>
                   </View>
-                )}
-
-                {/* 3. SEKME: GMAIL / SMTP */}
-                {activeConfigTab === 'smtp' && (
-                  <View>
-                    <View style={styles.infoBox}>
-                      <Text style={styles.infoBoxText}>
-                        💡 E-posta ile şifre kurtarma ve bildirim göndermek için Gmail 2 Adımlı Doğrulama altındaki "Uygulama Şifresi" (16 haneli) kullanınız.
-                      </Text>
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                      <View style={styles.labelRow}>
-                        <Mail color="#64748B" size={16} />
-                        <Text style={styles.label}>Gönderici Gmail / E-Posta Adresi</Text>
-                      </View>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="muhasebe@gmail.com"
-                        placeholderTextColor="#64748B"
-                        value={smtpEmail}
-                        onChangeText={setSmtpEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                      />
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                      <View style={styles.labelRow}>
-                        <Key color="#64748B" size={16} />
-                        <Text style={styles.label}>Gmail 16 Haneli Uygulama Şifresi</Text>
-                      </View>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="xxxx xxxx xxxx xxxx"
-                        placeholderTextColor="#64748B"
-                        value={smtpPass}
-                        onChangeText={setSmtpPass}
-                        secureTextEntry
-                        autoCapitalize="none"
-                      />
-                    </View>
-                  </View>
-                )}
 
                 {/* HER ZAMAN GÖRÜNEN: ÇALIŞMA YILI & KAYDET */}
                 <View style={styles.inputGroup}>

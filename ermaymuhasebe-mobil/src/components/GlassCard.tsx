@@ -1,5 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, TouchableOpacityProps, StyleSheet, StyleProp, ViewStyle, GestureResponderEvent, View } from 'react-native';
+import type { TouchableOpacityProps, StyleProp, ViewStyle, GestureResponderEvent } from 'react-native';
+import { TouchableOpacity, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';

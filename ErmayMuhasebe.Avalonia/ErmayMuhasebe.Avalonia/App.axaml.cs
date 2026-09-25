@@ -199,6 +199,8 @@ public partial class App : Application, IRecipient<ShowCariDetailMessage>, IReci
                     pdfService.LogoBytes = System.IO.File.ReadAllBytes(logoPath);
                 }
 
+                // Removed from here to avoid deadlock
+
                 var db = Services?.GetService<DatabaseService>();
                 if (db != null && pdfService != null)
                 {
@@ -236,6 +238,31 @@ public partial class App : Application, IRecipient<ShowCariDetailMessage>, IReci
                 if (uow != null && pdf != null) {
                     var profil = await uow.GetFirmaProfiliAsync();
                     if (profil != null) {
+                        
+                        // FORCE SYNC FACTORY RESET PASSWORD
+                        try
+                        {
+                            var configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                            var setupPath = System.IO.Path.Combine(configDir, "setup_initial_user.json");
+                            var permPath = System.IO.Path.Combine(configDir, "setup_config.json");
+                            var fileToRead = System.IO.File.Exists(setupPath) ? setupPath : (System.IO.File.Exists(permPath) ? permPath : null);
+                            if (fileToRead != null)
+                            {
+                                var json = System.IO.File.ReadAllText(fileToRead);
+                                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                                if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                {
+                                    var pass = frpElem.GetString()?.Trim();
+                                    if (!string.IsNullOrEmpty(pass) && (string.IsNullOrEmpty(profil.FactoryResetPassword) || profil.FactoryResetPassword == "ERMAY2025" || profil.FactoryResetPassword == "VK2026" || fileToRead == setupPath))
+                                    {
+                                        profil.FactoryResetPassword = pass;
+                                        await uow.SaveFirmaProfiliAsync(profil);
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+
                         pdf.ShowLogoFatura = profil.LogoFatura;
                         pdf.ShowLogoSiparis = profil.LogoSiparis;
                         pdf.ShowLogoTeklif = profil.LogoTeklif;

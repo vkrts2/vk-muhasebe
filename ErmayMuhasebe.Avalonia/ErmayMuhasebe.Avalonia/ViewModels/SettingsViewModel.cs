@@ -59,6 +59,8 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
     [ObservableProperty] private Models.User? _selectedSecurityUser;
     [ObservableProperty] private bool _isWaitingForTelegramApproval;
     [ObservableProperty] private string _telegramApprovalStatusText = "";
+    [ObservableProperty] private string _authFactoryResetPasswordForUsername = "";
+    [ObservableProperty] private string _authFactoryResetPasswordForPassword = "";
 
     [ObservableProperty] private string _activeUsername = "admin";
     [ObservableProperty] private ObservableCollection<SettingCategory> _categories = new();
@@ -821,6 +823,8 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
     public async Task ChangeUsernameAsync()
     {
         var trimmedNewUsername = NewUsername?.Trim();
+        var trimmedAuth = AuthFactoryResetPasswordForUsername?.Trim();
+
         if (string.IsNullOrEmpty(trimmedNewUsername))
         {
             ErrorMessage = "Kullanıcı adı boş olamaz.";
@@ -829,6 +833,13 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
 
         try
         {
+            var isAuthorized = await ValidateSetupSecurityPasswordAsync(trimmedAuth);
+            if (!isAuthorized)
+            {
+                ErrorMessage = "Güvenlik onay şifresi hatalı. Lütfen kurulumda belirlediğiniz şifreyi giriniz.";
+                return;
+            }
+
             var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
             if (db != null)
             {
@@ -841,75 +852,81 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
                     return;
                 }
 
-                var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == currentUsername);
+                var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username.ToLower() == currentUsername);
                 if (user != null)
                 {
-                    if (string.IsNullOrEmpty(user.TelegramChatId))
+                    var existing = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username.ToLower() == trimmedNewUsername.ToLower());
+                    if (existing != null && existing.Id != user.Id)
                     {
-                        ErrorMessage = "Telegram 2FA doğrulama aktif değil. Lütfen Telegram Chat ID bilginizi girin.";
+                        ErrorMessage = "Bu kullanıcı adı zaten başka bir kullanıcı tarafından kullanılıyor.";
                         return;
                     }
 
-                    IsWaitingForTelegramApproval = true;
-                    TelegramApprovalStatusText = "Güvenlik doğrulaması: Telegram botunuza gönderilen kullanıcı adı değişim onayını bekleyin...";
-                    ErrorMessage = "";
-                    SuccessMessage = "";
+                    var oldUsername = user.Username;
+                    user.Username = trimmedNewUsername;
+                    await conn.UpdateAsync(user);
 
-                    string requestId = await _securitySyncService.CreateSecurityRequestAsync(user.Username, "USERNAME_CHANGE", trimmedNewUsername);
-
-                    _securitySyncService.StopListeners();
-                    _securitySyncService.OnRequestStatusChanged += async (status) =>
+                    if (db.SyncService != null)
                     {
-                        await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                        try { await db.SyncService.SyncUserAsync(user); } catch { }
+                    }
+
+                    try { await _securitySyncService.UpdateUserSecurityStateAsync(user.Username); } catch { }
+
+                    // Also update setup_initial_user.json so on restart/sync the new username persists
+                    try
+                    {
+                        var configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                        var setupPath = System.IO.Path.Combine(configDir, "setup_initial_user.json");
+                        var permPath = System.IO.Path.Combine(configDir, "setup_config.json");
+                        foreach (var path in new[] { setupPath, permPath })
                         {
-                            if (status == "APPROVED")
+                            if (System.IO.File.Exists(path))
                             {
-                                try
+                                var json = await System.IO.File.ReadAllTextAsync(path);
+                                var node = System.Text.Json.Nodes.JsonNode.Parse(json);
+                                if (node != null && node["Users"] is System.Text.Json.Nodes.JsonArray uArr)
                                 {
-                                    user.Username = trimmedNewUsername;
-                                    await conn.UpdateAsync(user);
-                                    if (db.SyncService != null) await db.SyncService.SyncUserAsync(user);
-
-                                    await _securitySyncService.UpdateUserSecurityStateAsync(user.Username);
-
-                                    ActiveUsername = trimmedNewUsername;
-                                    SuccessMessage = "Kullanıcı adınız Telegram üzerinden onaylandı ve başarıyla güncellendi!";
-                                    ErrorMessage = "";
-                                    NewUsername = "";
-                                }
-                                catch (Exception ex)
-                                {
-                                    ErrorMessage = $"Kullanıcı adı güncellenirken hata oluştu: {ex.Message}";
-                                }
-                                finally
-                                {
-                                    IsWaitingForTelegramApproval = false;
-                                    _securitySyncService.StopListeners();
+                                    foreach (var u in uArr)
+                                    {
+                                        if (u?["Username"]?.ToString()?.Equals(oldUsername, StringComparison.OrdinalIgnoreCase) == true)
+                                        {
+                                            u["Username"] = trimmedNewUsername;
+                                        }
+                                    }
+                                    await System.IO.File.WriteAllTextAsync(path, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                                 }
                             }
-                            else if (status == "REJECTED")
-                            {
-                                ErrorMessage = "Kullanıcı adı değişikliği Telegram üzerinden reddedildi.";
-                                IsWaitingForTelegramApproval = false;
-                                _securitySyncService.StopListeners();
-                            }
-                            else if (status == "EXPIRED")
-                            {
-                                ErrorMessage = "Onay süresi doldu. Lütfen tekrar deneyin.";
-                                IsWaitingForTelegramApproval = false;
-                                _securitySyncService.StopListeners();
-                            }
-                        });
-                    };
+                        }
+                    }
+                    catch { }
 
-                    _securitySyncService.ListenToSecurityRequest(requestId);
+                    if (ActiveUsername?.ToLower() == oldUsername.ToLower())
+                    {
+                        ActiveUsername = trimmedNewUsername;
+                        var mainVm = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<MainViewModel>();
+                        if (mainVm != null) mainVm.CurrentUserName = trimmedNewUsername;
+                    }
+
+                    SuccessMessage = "Kullanıcı adınız başarıyla güncellendi!";
+                    ErrorMessage = "";
+                    NewUsername = "";
+                    AuthFactoryResetPasswordForUsername = "";
+
+                    if (IsAdmin)
+                    {
+                        await LoadUsersAsync();
+                    }
+                }
+                else
+                {
+                    ErrorMessage = "Kullanıcı bulunamadı.";
                 }
             }
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Kullanıcı adı değiştirme talebi başlatılamadı: {ex.Message}";
-            IsWaitingForTelegramApproval = false;
+            ErrorMessage = $"Kullanıcı adı güncellenirken hata oluştu: {ex.Message}";
         }
     }
 
@@ -917,7 +934,7 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
     public override async Task ChangePasswordAsync()
     {
         var trimmedNewPassword = NewPassword?.Trim();
-        var trimmedOldPassword = OldPassword?.Trim();
+        var trimmedAuth = AuthFactoryResetPasswordForPassword?.Trim();
 
         if (string.IsNullOrEmpty(trimmedNewPassword))
         {
@@ -927,96 +944,69 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
         
         try
         {
+            var isAuthorized = await ValidateSetupSecurityPasswordAsync(trimmedAuth);
+            if (!isAuthorized)
+            {
+                ErrorMessage = "Güvenlik onay şifresi hatalı. Lütfen kurulumda belirlediğiniz şifreyi giriniz.";
+                return;
+            }
+
             var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
             if (db != null)
             {
                 var conn = db.GetGlobalConnection();
                 var currentUsername = SelectedSecurityUser?.Username?.Trim()?.ToLower() ?? ActiveUsername?.Trim()?.ToLower() ?? "admin";
-                var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == currentUsername);
+                var user = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username.ToLower() == currentUsername);
                 
                 if (user != null)
                 {
-                    if (!string.IsNullOrEmpty(trimmedOldPassword))
-                    {
-                         if (!AuthService.VerifyPassword(trimmedOldPassword, user.Password!, user.PasswordSalt!))
-                         {
-                             ErrorMessage = "Eski şifre hatalı.";
-                             return;
-                         }
-                    }
-
-                    if (string.IsNullOrEmpty(user.TelegramChatId))
-                    {
-                        ErrorMessage = "Telegram 2FA doğrulama aktif değil. Lütfen profilinizden Telegram Chat ID bilginizi girin.";
-                        return;
-                    }
-
-                    // 1. Generate new password hash and salt (will write when approved)
                     var newSalt = AuthService.GenerateSalt();
                     var newHash = AuthService.HashPassword(trimmedNewPassword, newSalt);
 
-                    // 2. Create Telegram 2FA approval request on Firebase Realtime Database
-                    IsWaitingForTelegramApproval = true;
-                    TelegramApprovalStatusText = "Güvenlik doğrulaması: Telegram botunuza gönderilen onayı bekleyin...";
-                    ErrorMessage = "";
-                    SuccessMessage = "";
+                    user.Password = newHash;
+                    user.PasswordSalt = newSalt;
+                    await conn.UpdateAsync(user);
 
-                    var requestPayload = $"{newHash}:{newSalt}";
-                    string requestId = await _securitySyncService.CreateSecurityRequestAsync(user.Username, "PASSWORD_CHANGE", requestPayload);
-
-                    // 3. Start listening to request status
-                    _securitySyncService.StopListeners();
-                    _securitySyncService.OnRequestStatusChanged += async (status) =>
+                    if (db.SyncService != null)
                     {
-                        await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                        try { await db.SyncService.SyncUserAsync(user); } catch { }
+                    }
+
+                    ClearSavedCredentials();
+                    try { await _securitySyncService.UpdateUserSecurityStateAsync(user.Username); } catch { }
+
+                    // Also update setup_initial_user.json so on restart/sync the new password persists
+                    try
+                    {
+                        var configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                        var setupPath = System.IO.Path.Combine(configDir, "setup_initial_user.json");
+                        var permPath = System.IO.Path.Combine(configDir, "setup_config.json");
+                        foreach (var path in new[] { setupPath, permPath })
                         {
-                            if (status == "APPROVED")
+                            if (System.IO.File.Exists(path))
                             {
-                                try
+                                var json = await System.IO.File.ReadAllTextAsync(path);
+                                var node = System.Text.Json.Nodes.JsonNode.Parse(json);
+                                if (node != null && node["Users"] is System.Text.Json.Nodes.JsonArray uArr)
                                 {
-                                    // Save changes locally
-                                    user.Password = newHash;
-                                    user.PasswordSalt = newSalt;
-                                    await conn.UpdateAsync(user);
-                                    if (db.SyncService != null) await db.SyncService.SyncUserAsync(user);
-
-                                    // Clear credentials
-                                    ClearSavedCredentials();
-
-                                    // Update Firebase user security state (triggers logout on other clients)
-                                    await _securitySyncService.UpdateUserSecurityStateAsync(user.Username);
-
-                                    SuccessMessage = "Şifreniz Telegram üzerinden onaylandı ve başarıyla değiştirildi!";
-                                    ErrorMessage = "";
-                                    NewPassword = "";
-                                    OldPassword = "";
-                                }
-                                catch (Exception ex)
-                                {
-                                    ErrorMessage = $"Şifre güncellenirken bir hata oluştu: {ex.Message}";
-                                }
-                                finally
-                                {
-                                    IsWaitingForTelegramApproval = false;
-                                    _securitySyncService.StopListeners();
+                                    foreach (var u in uArr)
+                                    {
+                                        if (u?["Username"]?.ToString()?.Equals(currentUsername, StringComparison.OrdinalIgnoreCase) == true)
+                                        {
+                                            u["Password"] = trimmedNewPassword;
+                                        }
+                                    }
+                                    await System.IO.File.WriteAllTextAsync(path, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                                 }
                             }
-                            else if (status == "REJECTED")
-                            {
-                                ErrorMessage = "Şifre değişikliği Telegram üzerinden reddedildi.";
-                                IsWaitingForTelegramApproval = false;
-                                _securitySyncService.StopListeners();
-                            }
-                            else if (status == "EXPIRED")
-                            {
-                                ErrorMessage = "Onay süresi doldu. Lütfen tekrar deneyin.";
-                                IsWaitingForTelegramApproval = false;
-                                _securitySyncService.StopListeners();
-                            }
-                        });
-                    };
+                        }
+                    }
+                    catch { }
 
-                    _securitySyncService.ListenToSecurityRequest(requestId);
+                    SuccessMessage = "Şifreniz başarıyla güncellendi!";
+                    ErrorMessage = "";
+                    NewPassword = "";
+                    AuthFactoryResetPasswordForPassword = "";
                 }
                 else 
                 {
@@ -1026,8 +1016,7 @@ public partial class SettingsViewModel : ErmayMuhasebe.Shared.ViewModels.Setting
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Şifre değiştirme talebi başlatılamadı: {ex.Message}";
-            IsWaitingForTelegramApproval = false;
+            ErrorMessage = $"Şifre güncellenirken bir hata oluştu: {ex.Message}";
         }
     }
 
@@ -1272,26 +1261,34 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
             {
                 client.DefaultRequestHeaders.Accept.Clear();
                 client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                client.Timeout = TimeSpan.FromSeconds(10);
 
                 var payload = new
                 {
                     _subject = subject,
-                    email = "noreply@ermaymuhasebe.com",
                     message = body,
-                    _captcha = "false"
+                    _captcha = "false",
+                    _template = "table"
                 };
 
-                var response = await client.PostAsJsonAsync($"https://formsubmit.co/ajax/{toEmail}", payload);
-                if (!response.IsSuccessStatusCode)
+                var response = await client.PostAsJsonAsync($"https://formsubmit.co/ajax/{Uri.EscapeDataString(toEmail)}", payload);
+                if (response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[SettingsVM.SendEmail] FormSubmit ile başarıyla gönderildi: {toEmail}");
+                    return;
+                }
+                else
                 {
                     string errorResponse = await response.Content.ReadAsStringAsync();
-                    throw new Exception($"Servis Hatası: {response.StatusCode} - {errorResponse}");
+                    System.Diagnostics.Debug.WriteLine($"[SettingsVM.SendEmail] FormSubmit hata: {response.StatusCode} - {errorResponse}");
+                    throw new Exception($"FormSubmit servis hatası: {response.StatusCode} - {errorResponse}");
                 }
             }
         }
         catch (Exception ex)
         {
-            throw new Exception($"E-posta API gönderim hatası: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[SettingsVM.SendEmail] Exception: {ex.Message}");
+            throw new Exception($"E-posta gönderim hatası: {ex.Message}");
         }
     }
 
@@ -1461,6 +1458,7 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
                 SuccessMessage = $"'{trimmedUsername}' kullanıcısı başarıyla oluşturuldu.";
                 ErrorMessage = "";
                 NewUsername = "";
+                                    AuthFactoryResetPasswordForUsername = "";
                 NewUserPassword = "";
                 NewUserRole = "Operatör";
                 NewUserEmail = "";
@@ -1731,6 +1729,27 @@ Sıfırlama yapmak için bu şifreyi onay şifresi olarak kullanabilirsiniz.";
             profil.FactoryResetPassword = newResetPass;
             await _uow.SaveFirmaProfiliAsync(profil);
 
+            try
+            {
+                var configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                var setupPath = System.IO.Path.Combine(configDir, "setup_initial_user.json");
+                var permPath = System.IO.Path.Combine(configDir, "setup_config.json");
+                foreach (var path in new[] { setupPath, permPath })
+                {
+                    if (System.IO.File.Exists(path))
+                    {
+                        var json = await System.IO.File.ReadAllTextAsync(path);
+                        var node = System.Text.Json.Nodes.JsonNode.Parse(json);
+                        if (node != null)
+                        {
+                            node["FactoryResetPassword"] = newResetPass;
+                            await System.IO.File.WriteAllTextAsync(path, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                        }
+                    }
+                }
+            }
+            catch { }
+
             SuccessMessage = "Fabrika ayarları onay şifresi başarıyla güncellendi.";
             ErrorMessage = "";
             ShowFactoryResetVerificationPanel = false;
@@ -1934,31 +1953,10 @@ Bu geçici şifreyle giriş yaptıktan sonra Ayarlar alanından şifrenizi deği
     [RelayCommand]
     public override async Task FactoryResetAsync()
     {
-        var profil = await _uow.GetFirmaProfiliAsync();
-        string expectedPass = string.IsNullOrWhiteSpace(profil.FactoryResetPassword) ? "ERMAY2025" : profil.FactoryResetPassword;
-
-        Models.User? adminUser = null;
-        try
+        var isAuthorized = await ValidateSetupSecurityPasswordAsync(ResetPassword);
+        if (!isAuthorized)
         {
-            var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
-            var conn = db?.GetGlobalConnection();
-            if (conn != null)
-            {
-                adminUser = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Role == "Admin" || u.Username == "admin");
-            }
-        }
-        catch { }
-
-        bool isPassValid = !string.IsNullOrWhiteSpace(ResetPassword) &&
-                           (ResetPassword == expectedPass || 
-                            ResetPassword == "ERMAY2025" || 
-                            ResetPassword == "VK2026" || 
-                            ResetPassword == "123" || 
-                            (adminUser != null && (AuthService.VerifyPassword(ResetPassword, adminUser.Password, adminUser.PasswordSalt) || ResetPassword == adminUser.Password)));
-
-        if (!isPassValid) 
-        {
-            ErrorMessage = "Hatalı sıfırlama şifresi! Fabrika ayarları için onay şifrenizi veya admin şifrenizi girmelisiniz.";
+            ErrorMessage = "Hatalı sıfırlama şifresi! Fabrika ayarları için kurulumda belirlediğiniz şifreyi girmelisiniz.";
             return;
         }
 
@@ -2833,6 +2831,60 @@ Bu geçici şifreyle giriş yaptıktan sonra Ayarlar alanından şifrenizi deği
         {
             IsBusy = false;
         }
+    }
+
+    private async Task<bool> ValidateSetupSecurityPasswordAsync(string? inputPassword)
+    {
+        var trimmed = inputPassword?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return false;
+
+        // 1. Veritabanındaki FactoryResetPassword ile kontrol
+        try
+        {
+            var profil = await _uow.GetFirmaProfiliAsync();
+            if (!string.IsNullOrWhiteSpace(profil?.FactoryResetPassword) && profil.FactoryResetPassword.Trim() == trimmed)
+            {
+                return true;
+            }
+        }
+        catch { }
+
+        // 2. setup_initial_user.json veya setup_config.json dosyasından kontrol
+        try
+        {
+            var configDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+            var setupPath = System.IO.Path.Combine(configDir, "setup_initial_user.json");
+            var permPath = System.IO.Path.Combine(configDir, "setup_config.json");
+            var fileToRead = System.IO.File.Exists(setupPath) ? setupPath : (System.IO.File.Exists(permPath) ? permPath : null);
+            if (fileToRead != null)
+            {
+                var json = await System.IO.File.ReadAllTextAsync(fileToRead);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var frp = frpElem.GetString()?.Trim();
+                    if (!string.IsNullOrEmpty(frp))
+                    {
+                        // Veritabanına da eşitle
+                        try
+                        {
+                            var p = await _uow.GetFirmaProfiliAsync();
+                            if (p != null && (string.IsNullOrEmpty(p.FactoryResetPassword) || p.FactoryResetPassword != frp))
+                            {
+                                p.FactoryResetPassword = frp;
+                                await _uow.SaveFirmaProfiliAsync(p);
+                            }
+                        }
+                        catch { }
+
+                        if (frp == trimmed) return true;
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return false;
     }
 }
 

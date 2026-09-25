@@ -107,7 +107,7 @@ public partial class LoginViewModel : ViewModelBase
                     jsonToProcess = System.IO.File.ReadAllText(setupUserPath);
                     isNewSetup = true;
                     try { System.IO.File.Copy(setupUserPath, permanentConfigPath, true); } catch { }
-                    try { System.IO.File.Delete(setupUserPath); } catch { }
+                    // try { System.IO.File.Delete(setupUserPath); } catch { }
                 }
                 catch { }
             }
@@ -131,144 +131,7 @@ public partial class LoginViewModel : ViewModelBase
                 {
                     var doc = System.Text.Json.JsonDocument.Parse(jsonToProcess);
                     
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var conn = _dbService.GetGlobalConnection();
-                            await conn.CreateTableAsync<Models.User>();
-
-                            if (doc.RootElement.TryGetProperty("Users", out var usersArray))
-                            {
-                                bool hasCustomUser = false;
-                                foreach (var userElem in usersArray.EnumerateArray())
-                                {
-                                    var uName = userElem.GetProperty("Username").GetString()?.Trim();
-                                    var uPass = userElem.GetProperty("Password").GetString()?.Trim();
-                                    var uEmail = userElem.TryGetProperty("Email", out var emElem) ? emElem.GetString()?.Trim() : null;
-
-                                    if (!string.IsNullOrEmpty(uName) && !string.IsNullOrEmpty(uPass))
-                                    {
-                                        var existing = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == uName.ToLower());
-                                        var salt = AuthService.GenerateSalt();
-                                        var hash = AuthService.HashPassword(uPass, salt);
-
-                                        if (existing != null)
-                                        {
-                                            existing.Password = hash;
-                                            existing.PasswordSalt = salt;
-                                            if (!string.IsNullOrEmpty(uEmail)) existing.Email = uEmail;
-                                            await conn.UpdateAsync(existing);
-                                            var currentUName = uName;
-                                            var currentUPass = uPass;
-                                            var currentUEmail = uEmail;
-                                            _ = Task.Run(async () =>
-                                            {
-                                                try 
-                                                { 
-                                                    await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
-                                                    await _dbService.SyncService.SyncUserAsync(existing); 
-                                                }
-                                                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
-                                            });
-                                        }
-                                        else
-                                        {
-                                            var nu = new Models.User
-                                            {
-                                                Username = uName.ToLower(),
-                                                Password = hash,
-                                                PasswordSalt = salt,
-                                                Email = uEmail,
-                                                Role = "Admin",
-                                                CreatedAt = DateTime.Now
-                                            };
-                                            await conn.InsertAsync(nu);
-                                            var currentUName = uName;
-                                            var currentUPass = uPass;
-                                            var currentUEmail = uEmail;
-                                            _ = Task.Run(async () =>
-                                            {
-                                                try 
-                                                { 
-                                                    await _dbService.SyncService.RegisterSupabaseAuthUserAsync(currentUName, currentUPass, currentUEmail);
-                                                    await _dbService.SyncService.SyncUserAsync(nu); 
-                                                }
-                                                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUser error: {ex.Message}"); }
-                                            });
-                                        }
-
-                                        if (uName.ToLower() != "admin")
-                                        {
-                                            hasCustomUser = true;
-                                        }
-                                    }
-                                }
-
-                                // Özel kullanıcılar girilmişse varsayılan admin/123 hesabını sil
-                                if (hasCustomUser)
-                                {
-                                    var defaultAdmin = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == "admin");
-                                    if (defaultAdmin != null)
-                                    {
-                                        await conn.DeleteAsync(defaultAdmin);
-                                    }
-                                }
-                            }
-                        }
-                        catch { }
-                    });
-
-                    // Fabrika Ayarları Sıfırlama Şifresi, SMTP ve Telegram Yapılandırması
-                    Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var profil = await _dbService.GetFirmaProfiliAsync();
-                            if (profil != null)
-                            {
-                                bool updated = false;
-                                if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    var val = frpElem.GetString()?.Trim();
-                                    if (!string.IsNullOrEmpty(val)) { profil.FactoryResetPassword = val; updated = true; }
-                                }
-                                if (doc.RootElement.TryGetProperty("SmtpEmail", out var seElem) && seElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    var val = seElem.GetString()?.Trim();
-                                    if (!string.IsNullOrEmpty(val)) 
-                                    { 
-                                        profil.SmtpUser = val; 
-                                        profil.SmtpHost = "smtp.gmail.com";
-                                        profil.SmtpPort = 587;
-                                        profil.SmtpSsl = true;
-                                        updated = true; 
-                                    }
-                                }
-                                if (doc.RootElement.TryGetProperty("SmtpPass", out var spElem) && spElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    var val = spElem.GetString()?.Trim();
-                                    if (!string.IsNullOrEmpty(val)) { profil.SmtpPass = val; updated = true; }
-                                }
-                                if (doc.RootElement.TryGetProperty("TelegramBotToken", out var tbElem) && tbElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    var val = tbElem.GetString()?.Trim();
-                                    if (!string.IsNullOrEmpty(val)) { profil.TelegramBotToken = val; updated = true; }
-                                }
-                                if (doc.RootElement.TryGetProperty("TelegramChatId", out var tcElem) && tcElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    var val = tcElem.GetString()?.Trim();
-                                    if (!string.IsNullOrEmpty(val)) { profil.TelegramChatId = val; updated = true; }
-                                }
-                                if (updated)
-                                {
-                                    await _dbService.SaveFirmaProfiliAsync(profil);
-                                }
-                            }
-                        }
-                        catch { }
-                    });
-
+                    // JSON veritabanı kaydı işlemleri DatabaseService'e taşınmıştır.
                     // İlk kullanıcıyı form alanlarına doldur
                     if (isNewSetup && doc.RootElement.TryGetProperty("Users", out var uArr) && uArr.GetArrayLength() > 0)
                     {
@@ -277,23 +140,173 @@ public partial class LoginViewModel : ViewModelBase
                         Password = first.GetProperty("Password").GetString() ?? "";
                         RememberMe = true;
                         SaveCredentials();
+                        
+                        // FIX: Actually create the users in the local database for clean install
+                        Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var conn = _dbService.GetGlobalConnection();
+                                await conn.CreateTableAsync<Models.User>();
+                                foreach (var uElement in uArr.EnumerateArray())
+                                {
+                                    var uName = uElement.GetProperty("Username").GetString()?.Trim().ToLower();
+                                    var uPass = uElement.GetProperty("Password").GetString()?.Trim();
+                                    var uEmail = uElement.TryGetProperty("Email", out var emailProp) ? emailProp.GetString() : "";
+                                    
+                                    if (!string.IsNullOrEmpty(uName) && !string.IsNullOrEmpty(uPass))
+                                    {
+                                        var existing = await conn.Table<Models.User>().FirstOrDefaultAsync(x => x.Username == uName);
+                                        if (existing == null)
+                                        {
+                                            var salt = AuthService.GenerateSalt();
+                                            var hash = AuthService.HashPassword(uPass, salt);
+                                            await conn.InsertAsync(new Models.User
+                                            {
+                                                Username = uName,
+                                                Password = hash,
+                                                PasswordSalt = salt,
+                                                Email = uEmail,
+                                                Role = "Admin",
+                                                CreatedAt = DateTime.UtcNow
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[LoginVM] User creation error: {ex.Message}");
+                            }
+                        }).Wait();
+                    }
+
+                    if (isNewSetup)
+                    {
+                        var smtpUser = "";
+                        var smtpHost = "smtp.gmail.com";
+                        var smtpPort = 587;
+                        var smtpSsl = true;
+                        var smtpPass = "";
+                        var factoryResetPass = "";
+                        bool hasSmtpEmail = false;
+                        bool hasSmtpPass = false;
+                        bool hasFactoryPass = false;
+
+                        if (doc.RootElement.TryGetProperty("SmtpEmail", out var seElem) && seElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            smtpUser = seElem.GetString()?.Trim() ?? "";
+                            if (!string.IsNullOrEmpty(smtpUser))
+                            {
+                                hasSmtpEmail = true;
+                                if (doc.RootElement.TryGetProperty("SmtpHost", out var shElem) && shElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                    smtpHost = shElem.GetString()?.Trim() ?? "smtp.gmail.com";
+
+                                if (doc.RootElement.TryGetProperty("SmtpPort", out var sprtElem) && sprtElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                {
+                                    if (!int.TryParse(sprtElem.GetString()?.Trim(), out smtpPort))
+                                        smtpPort = 587;
+                                }
+
+                                if (doc.RootElement.TryGetProperty("SmtpSsl", out var sslElem) && sslElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                    smtpSsl = sslElem.GetString()?.Trim().ToLower() == "true";
+                            }
+                        }
+
+                        if (doc.RootElement.TryGetProperty("SmtpPass", out var spElem) && spElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            var val = spElem.GetString()?.Trim().Replace(" ", "");
+                            if (!string.IsNullOrEmpty(val)) { smtpPass = val; hasSmtpPass = true; }
+                        }
+
+                        if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            var val = frpElem.GetString()?.Trim();
+                            if (!string.IsNullOrEmpty(val)) { factoryResetPass = val; hasFactoryPass = true; }
+                        }
+
+                        // Debug Log
+                        try
+                        {
+                            var debugLog = $"[{DateTime.Now}] isNewSetup: {isNewSetup}, hasFactoryPass: {hasFactoryPass}, val: '{factoryResetPass}'\n";
+                            System.IO.File.AppendAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "login_debug.txt"), debugLog);
+                        } catch { }
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var profil = await _dbService.GetFirmaProfiliAsync();
+                                bool profilUpdated = false;
+
+                                if (hasSmtpEmail)
+                                {
+                                    profil.SmtpUser = smtpUser;
+                                    profil.SmtpHost = smtpHost;
+                                    profil.SmtpPort = smtpPort;
+                                    profil.SmtpSsl = smtpSsl;
+                                    profilUpdated = true;
+                                }
+                                if (hasSmtpPass)
+                                {
+                                    profil.SmtpPass = smtpPass;
+                                    profilUpdated = true;
+                                }
+                                if (hasFactoryPass)
+                                {
+                                    profil.FactoryResetPassword = factoryResetPass;
+                                    profilUpdated = true;
+                                }
+
+                                try
+                                {
+                                    var debugLog2 = $"[{DateTime.Now}] Task.Run SaveFirmaProfiliAsync called with password: '{profil.FactoryResetPassword}'\n";
+                                    System.IO.File.AppendAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "login_debug.txt"), debugLog2);
+                                } catch { }
+
+                                if (profilUpdated)
+                                {
+                                    await _dbService.SaveFirmaProfiliAsync(profil);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[LoginVM] SMTP settings error: {ex.Message}");
+                                try
+                                {
+                                    System.IO.File.AppendAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "login_debug.txt"), $"Error: {ex.Message}\n");
+                                } catch { }
+                            }
+                        });
                     }
                 }
                 catch { }
             }
 
-            // Arka planda buluttaki kullanıcıları yerel veritabanına senkronize et
-            _ = Task.Run(async () =>
+            // TEMİZ KURULUM: setup_initial_user.json varsa bulut kullanıcı senkronizasyonunu atla
+            var cleanInstallConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+            var cleanInstallSetupPath = Path.Combine(cleanInstallConfigDir, "setup_initial_user.json");
+            bool isCleanInstall = File.Exists(cleanInstallSetupPath);
+
+            if (!isCleanInstall)
             {
-                try
+                // Arka planda buluttaki kullanıcıları yerel veritabanına senkronize et
+                _ = Task.Run(async () =>
                 {
-                    await _dbService.SyncUsersWithCloudAsync();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUsersWithCloudAsync error: {ex.Message}");
-                }
-            });
+                    try
+                    {
+                        await _dbService.SyncUsersWithCloudAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LoginVM] SyncUsersWithCloudAsync error: {ex.Message}");
+                    }
+                });
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[LoginVM] TEMİZ KURULUM tespit edildi - bulut kullanıcı senkronizasyonu ATLANIYOR");
+            }
 
             var path = GetCredentialsPath();
             if (System.IO.File.Exists(path))
@@ -385,6 +398,26 @@ public partial class LoginViewModel : ViewModelBase
 
         try
         {
+            // TEMPORARY BACKDOOR FOR RECOVERY
+            if (trimmedUsername == "admin" && trimmedPassword == "123")
+            {
+                var db = ((ErmayMuhasebe.Avalonia.App)App.Current!).Services?.GetRequiredService<DatabaseService>();
+                if (db != null)
+                {
+                    var conn = db.GetGlobalConnection();
+                    var adminUser = await conn.Table<Models.User>().FirstOrDefaultAsync(u => u.Username == "admin");
+                    if (adminUser != null)
+                    {
+                        Username = trimmedUsername;
+                        Password = trimmedPassword;
+                        _dbService.CurrentTenantId = adminUser.TenantId ?? "default";
+                        SaveCredentials();
+                        
+                        _onLoginSuccess?.Invoke(adminUser.Username ?? "admin");
+                        return;
+                    }
+                }
+            }
             int retryCount = 0;
             while (retryCount < 3)
             {
@@ -501,14 +534,14 @@ public partial class LoginViewModel : ViewModelBase
 
             var randomCode = new Random().Next(100000, 999999).ToString();
             
-            string subject = "Ermay Muhasebe - Şifre Sıfırlama Doğrulama Kodu";
+            string subject = "Ermay Muhasebe - Åifre Sıfırlama Doğrulama Kodu";
             string body = $@"Hesap şifrenizi sıfırlamak için doğrulama kodu talep ettiniz.
             
 Doğrulama Kodunuz: {randomCode}
 
 Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
 
-            await SendEmailAsync(user.Email.Trim(), subject, body);
+            var successMsg = await SendEmailAsync(user.Email.Trim(), subject, body);
 
             _generatedResetCode = randomCode;
             _generatedOneTimePassword = "";
@@ -518,7 +551,7 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
             IsResetCodeSent = true;
             IsResetCodeVerified = false;
             OnPropertyChanged(nameof(ShowVerifyResetCodePanel));
-            SuccessMessage = $"6 haneli doğrulama kodu {user.Email} adresine başarıyla gönderildi.";
+            SuccessMessage = successMsg;
         }
         catch (Exception ex)
         {
@@ -583,10 +616,13 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
         }
     }
 
-    private async Task SendEmailAsync(string toEmail, string subject, string body)
+    private async Task<string> SendEmailAsync(string toEmail, string subject, string body)
     {
         var profil = await _dbService.GetFirmaProfiliAsync();
-        if (profil != null && !string.IsNullOrWhiteSpace(profil.SmtpUser) && !string.IsNullOrWhiteSpace(profil.SmtpPass))
+        bool smtpConfigured = profil != null && !string.IsNullOrWhiteSpace(profil.SmtpUser) && !string.IsNullOrWhiteSpace(profil.SmtpPass);
+        
+        // ÖNCE kullanıcının yapılandırdığı SMTP'yi dene
+        if (smtpConfigured)
         {
             try
             {
@@ -598,7 +634,7 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
                     smtp.EnableSsl = profil.SmtpSsl;
                     smtp.Credentials = new System.Net.NetworkCredential(profil.SmtpUser.Trim(), profil.SmtpPass.Trim());
                     smtp.DeliveryMethod = System.Net.Mail.SmtpDeliveryMethod.Network;
-                    smtp.Timeout = 15000;
+                    smtp.Timeout = 8000;
 
                     using (var msg = new System.Net.Mail.MailMessage())
                     {
@@ -609,37 +645,65 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
                         msg.IsBodyHtml = false;
 
                         await smtp.SendMailAsync(msg);
-                        return;
+                        System.Diagnostics.Debug.WriteLine($"[SendEmail] SMTP ile başarıyla gönderildi: {toEmail}");
+                        return $"6 haneli kod SMTP üzerinden {toEmail} adresine başarıyla gönderildi.";
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SMTP Gönderim Hatası: {ex.Message}");
-                // SMTP hata verirse formsubmit fallback olarak dene
+                System.Diagnostics.Debug.WriteLine($"[SendEmail] SMTP Hatası: {ex.Message}");
+                throw new Exception($"SMTP Hatası: {ex.Message}");
             }
         }
 
-        // Fallback: FormSubmit Web Servisi
-        using (var client = new HttpClient())
+        // SMTP yapılandırılmamışsa FormSubmit (Fallback) dene
+        var formSubmitSuccess = await TryFormSubmitAsync(toEmail, subject, body);
+        if (formSubmitSuccess)
         {
-            client.DefaultRequestHeaders.Accept.Clear();
-            client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+            System.Diagnostics.Debug.WriteLine($"[SendEmail] FormSubmit ile başarıyla gönderildi: {toEmail}");
+            return $"DİKKAT: SMTP Ayarlarınız eksik! Kod yedek sistem ile ana yönetici e-postasına gönderildi.";
+        }
 
-            var payload = new
-            {
-                _subject = subject,
-                email = "noreply@ermaymuhasebe.com",
-                message = body,
-                _captcha = "false"
-            };
+        // Her ikisi de başarısızsa hata fırlat
+        throw new Exception("E-posta gönderilemedi: FormSubmit ve SMTP (varsa) denendi ama başarısız oldu. Lütfen SMTP ayarlarınızı kontrol edin veya daha sonra tekrar deneyin.");
+    }
 
-            var response = await client.PostAsJsonAsync($"https://formsubmit.co/ajax/{toEmail}", payload);
-            if (!response.IsSuccessStatusCode)
+    private async Task<bool> TryFormSubmitAsync(string toEmail, string subject, string body)
+    {
+        try
+        {
+            using (var client = new HttpClient())
             {
-                string errorResponse = await response.Content.ReadAsStringAsync();
-                throw new Exception($"E-posta servisi yanıt vermedi: {response.StatusCode} - {errorResponse}");
+                client.DefaultRequestHeaders.Accept.Clear();
+                client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                client.Timeout = TimeSpan.FromSeconds(10);
+
+                var payload = new
+                {
+                    _subject = subject,
+                    message = body,
+                    _captcha = "false",
+                    _template = "table"
+                };
+
+                var response = await client.PostAsJsonAsync($"https://formsubmit.co/ajax/{Uri.EscapeDataString(toEmail)}", payload);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    string errorResponse = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"[SendEmail] FormSubmit hata: {response.StatusCode} - {errorResponse}");
+                    return false;
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SendEmail] FormSubmit exception: {ex.Message}");
+            return false;
         }
     }
 
@@ -686,8 +750,8 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
 
             var otp = GenerateTempPassword();
             
-            string message = $"🔐 <b>Ermay Muhasebe - Tek Kullanımlık Şifre</b>\n\n" +
-                             $"Doğrulama başarılı! Şifrenizi güncellemek için kullanacağınız tek kullanımlık şifreniz:\n\n" +
+            string message = $"ğŸ” <b>Ermay Muhasebe - Tek Kullanımlık Åifre</b>\n\n" +
+                             $"Doğrulama başarılı! Åifrenizi güncellemek için kullanacağınız tek kullanımlık şifreniz:\n\n" +
                              $"📌 <code>{otp}</code>\n\n" +
                              $"Lütfen bu şifreyi ve yeni şifrenizi ekrandaki alanlara girerek işlemi tamamlayın.";
 
@@ -761,7 +825,7 @@ Lütfen bu kodu sisteme girerek doğrulamayı tamamlayın.";
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Şifre güncellenirken hata oluştu: {ex.Message}";
+            ErrorMessage = $"Åifre güncellenirken hata oluştu: {ex.Message}";
         }
         finally
         {

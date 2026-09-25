@@ -53,7 +53,7 @@
                        Foreground="{DynamicResource TextBrush}"/>
 
             <!-- Giriş Formu Alanı -->
-            <StackPanel Spacing="10" Margin="0,15,0,0" IsVisible="{Binding !ShowResetPasswordPanel}">
+            <StackPanel Spacing="10" Margin="0,15,0,0">
                 <TextBlock Text="Kullanıcı Adı" FontWeight="SemiBold" FontSize="12" Opacity="0.8"/>
                 <TextBox Text="{Binding Username}" 
                          Watermark="Kullanıcı adınızı girin"
@@ -68,59 +68,15 @@
                          VerticalContentAlignment="Center"
                          KeyDown="Password_KeyDown"/>
 
-                <Grid ColumnDefinitions="*, Auto" Margin="0,10,0,12" VerticalAlignment="Center">
-                    <CheckBox Grid.Column="0" Content="Beni Hatırla" 
-                              IsChecked="{Binding RememberMe}"
-                              FontSize="13" 
-                              Cursor="Hand"
-                              VerticalAlignment="Center"
-                              Foreground="{DynamicResource TextBrush}"/>
-                    
-                    <Button Grid.Column="1" 
-                            Command="{Binding ForgotPasswordCommand}"
-                            Classes="LinkButton"
-                            VerticalAlignment="Center">
-                        <TextBlock Text="Şifremi Unuttum?" 
-                                   FontSize="13" 
-                                   FontWeight="Medium" 
-                                   Foreground="#60A5FA"/>
-                    </Button>
-                </Grid>
+                <CheckBox Content="Beni Hatırla" 
+                          IsChecked="{Binding RememberMe}"
+                          Margin="0,10,0,12"
+                          FontSize="13" 
+                          Cursor="Hand"
+                          VerticalAlignment="Center"
+                          Foreground="{DynamicResource TextBrush}"/>
             </StackPanel>
 
-            <!-- Şifre Kurtarma Paneli (E-posta) -->
-            <StackPanel Spacing="15" Margin="0,20,0,0" IsVisible="{Binding ShowResetPasswordPanel}">
-                <TextBlock Text="Şifre Kurtarma / Sıfırlama" FontSize="16" FontWeight="Bold" Foreground="#F43F5E" HorizontalAlignment="Center"/>
-                
-                <!-- Aşama 1: Kullanıcı Adı veya E-posta Girme ve Kod İsteme -->
-                <StackPanel Spacing="10" IsVisible="{Binding !IsResetCodeSent}">
-                    <TextBlock Text="Kullanıcı adınızı veya kayıtlı e-posta adresinizi girip 6 haneli doğrulama kodu talep edebilirsiniz." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap" TextAlignment="Center"/>
-                    <TextBox Text="{Binding ResetUsername}" Watermark="Kullanıcı Adı veya E-posta" Height="40" CornerRadius="8"/>
-
-                    <Button Command="{Binding SendResetCodeCommand}" Content="E-posta ile Doğrulama Kodu Gönder" Classes="Primary" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                </StackPanel>
-
-                <!-- Aşama 2: 6 Haneli Doğrulama Kodunu Girme ve Doğrulama -->
-                <StackPanel Spacing="10" IsVisible="{Binding ShowVerifyResetCodePanel}">
-                    <TextBlock Text="E-posta adresinize gönderilen 6 haneli doğrulama kodunu girin." FontSize="12" Foreground="#94a3b8" TextWrapping="Wrap" HorizontalAlignment="Center"/>
-                    <TextBox Text="{Binding ResetVerificationCode}" Watermark="6 Haneli Kod" Height="40" CornerRadius="8"/>
-                    <Button Command="{Binding VerifyResetCodeCommand}" Content="Kodu Doğrula" Classes="Warning" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                </StackPanel>
-
-                <!-- Aşama 3: Yeni Şifre Tanımlama -->
-                <StackPanel Spacing="10" IsVisible="{Binding IsResetCodeVerified}">
-                    <TextBlock Text="Doğrulama başarılı! Lütfen yeni şifrenizi belirleyin." FontSize="12" Foreground="#4ADE80" TextWrapping="Wrap" TextAlignment="Center"/>
-                    
-                    <TextBox PasswordChar="*" Text="{Binding ResetNewPassword}" Watermark="Yeni Şifre Belirleyin" Height="40" CornerRadius="8"/>
-
-                    <Button Command="{Binding ConfirmResetPasswordCommand}" Content="Şifreyi Güncelle" Classes="Danger" Height="40" CornerRadius="8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                </StackPanel>
-
-                <!-- Giriş Ekranına Dön Butonu -->
-                <Button Command="{Binding ForgotPasswordCommand}" Classes="LinkButton" HorizontalAlignment="Center">
-                    <TextBlock Text="← Giriş Ekranına Dön" FontSize="13" Foreground="#60A5FA"/>
-                </Button>
-            </StackPanel>
 
             <TextBlock Text="{Binding ErrorMessage}" 
                        Foreground="#EF4444" 
@@ -146,7 +102,6 @@
                     HorizontalContentAlignment="Center"
                     VerticalContentAlignment="Center"
                     FontWeight="Bold"
-                    IsVisible="{Binding !ShowResetPasswordPanel}"
                     IsEnabled="{Binding !IsBusy}">
                 <Button.Transitions>
                     <Transitions>
