@@ -944,6 +944,18 @@ export default function FinansScreen({ route, navigation }: any) {
       isDeleted: false,
     };
     const ok = await writeData(`Bankalar/${hesapId}`, dok);
+    if (hesapTur === "Kasa") {
+      await writeData(`Kasalar/${hesapId}`, {
+        id: hesapId,
+        kasaKodu: hesapNo.trim() || `KAS-${hesapId}`,
+        kasaAdi: hesapAdi.trim(),
+        bakiye: existing ? existing.bakiye || 0 : acilis,
+        paraBirimi: hesapDoviz,
+        aciklama: hesapYetkili.trim(),
+        isDeleted: false,
+        isActive: true,
+      });
+    }
     if (ok) {
       setIsHesapFormOpen(false);
       resetHesapForm();

@@ -321,7 +321,7 @@ namespace ErmayMuhasebe.Services
                     }
                     catch (Exception freshEx)
                     {
-                        throw new Exception($"VERİTABANI ERİŞİM HATASI: Veritabanı dosyasına bağlanılamadı ve yeni veritabanı oluşturulamadı.\n\nDetay: {lastError}\nYeni DB Hatası: {freshEx.Message}\n\nLütfen uygulamayı yönetici olarak çalıştırmayı veya bilgisayarınızı yeniden başlatmayı deneyin.");
+                        throw new Exception($"VERÃ„Â°TABANI ERÃ„Â°Ã…ÂÃ„Â°M HATASI: VeritabanÃ„Â± dosyasÃ„Â±na baÃ„Å¸lanÃ„Â±lamadÃ„Â± ve yeni veritabanÃ„Â± oluÃ…Å¸turulamadÃ„Â±.\n\nDetay: {lastError}\nYeni DB HatasÃ„Â±: {freshEx.Message}\n\nLÃƒÂ¼tfen uygulamayÃ„Â± yÃƒÂ¶netici olarak ÃƒÂ§alÃ„Â±Ã…Å¸tÃ„Â±rmayÃ„Â± veya bilgisayarÃ„Â±nÃ„Â±zÃ„Â± yeniden baÃ…Å¸latmayÃ„Â± deneyin.");
                     }
                 }
 
@@ -436,9 +436,15 @@ namespace ErmayMuhasebe.Services
                 
                 _isInitialized = true;
 
+                // Check if this is a clean install (first run after installer)
+                // The installer creates setup_initial_user.json which gets deleted after processing
+                var configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                var setupUserPath = Path.Combine(configDir, "setup_initial_user.json");
+                bool isCleanInstall = File.Exists(setupUserPath);
+
                 if (!IsTestMode && !DisableCloudSync)
                 {
-                    // Otomatik Kurtarma: Bulut eşitleme hatası sebebiyle yanlışlıkla IsDeleted=1 yapılmış geçerli carileri ve stokları kurtar
+                    // Otomatik Kurtarma: Bulut eÃ…Å¸itleme hatasÃ„Â± sebebiyle yanlÃ„Â±Ã…Å¸lÃ„Â±kla IsDeleted=1 yapÃ„Â±lmÃ„Â±Ã…Å¸ geÃƒÂ§erli carileri ve stoklarÃ„Â± kurtar
                     try
                     {
                         await _db.ExecuteAsync("UPDATE CariKart SET IsDeleted = 0 WHERE IsDeleted = 1 AND Unvan IS NOT NULL AND TRIM(Unvan) != '';");
@@ -447,7 +453,20 @@ namespace ErmayMuhasebe.Services
                     catch { }
 
                     await MigrateMissingDataFromGlobalDbAsync();
-                    StartCloudListeners();
+
+                    // TEMÃ„Â°Z KURULUM: Bulut eÃ…Å¸itlemeyi atla (eski verilerin ÃƒÂ§ekilmesini ÃƒÂ¶nle)
+                    // setup_initial_user.json Installer tarafÃ„Â±ndan oluÃ…Å¸turulur ve LoadSavedCredentials tarafÃ„Â±ndan silinir
+                    if (!isCleanInstall)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[DatabaseService] Normal baÃ…Å¸langÃ„Â±ÃƒÂ§ - bulut dinleyicileri baÃ…Å¸latÃ„Â±lÃ„Â±yor");
+                        StartCloudListeners();
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[DatabaseService] TEMÃ„Â°Z KURULUM tespit edildi - bulut eÃ…Å¸itlemesi ATLANIYOR (eski veriler ÃƒÂ§ekilmeyecek)");
+                        // Clean install: sadece kullanÃ„Â±cÃ„Â± ayarlarÃ„Â± yÃƒÂ¼klenecek, veritabanÃ„Â± tamamen boÃ…Å¸ kalacak
+                    }
+
                     _ = Task.Run(async () =>
                     {
                         try { await RecalculateSystemBalancesAsync(); } catch { }
@@ -463,7 +482,7 @@ namespace ErmayMuhasebe.Services
                 }
                 else
                 {
-                    throw new Exception($"VERİTABANI BAŞLATMA HATASI: {ex.Message}", ex);
+                    throw new Exception($"VERÃ„Â°TABANI BAÃ…ÂLATMA HATASI: {ex.Message}", ex);
                 }
             }
             finally
@@ -511,7 +530,38 @@ namespace ErmayMuhasebe.Services
         {
             await EnsureInitializedAsync();
             var item = await _db.Table<FirmaProfili>().FirstOrDefaultAsync(x => x.Id == 1);
-            return item ?? new FirmaProfili { Id = 1, FirmaAdi = "Ermay Muhasebe" };
+            if (item == null)
+            {
+                item = new FirmaProfili { Id = 1, FirmaAdi = "Ermay Muhasebe" };
+            }
+
+            if (string.IsNullOrWhiteSpace(item.FactoryResetPassword) || item.FactoryResetPassword == "ERMAY2025" || item.FactoryResetPassword == "VK2026")
+            {
+                try
+                {
+                    var configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
+                    var setupPath = Path.Combine(configDir, "setup_initial_user.json");
+                    var permPath = Path.Combine(configDir, "setup_config.json");
+                    var fileToRead = File.Exists(setupPath) ? setupPath : (File.Exists(permPath) ? permPath : null);
+                    if (fileToRead != null)
+                    {
+                        var json = await File.ReadAllTextAsync(fileToRead);
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            var pass = frpElem.GetString()?.Trim();
+                            if (!string.IsNullOrEmpty(pass))
+                            {
+                                item.FactoryResetPassword = pass;
+                                await SaveFirmaProfiliAsync(item);
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return item;
         }
 
         public async Task SaveFirmaProfiliAsync(FirmaProfili f)
@@ -563,7 +613,7 @@ namespace ErmayMuhasebe.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DatabaseService] SyncFirmaProfiliAsync hatası: {ex.Message}");
+                Console.WriteLine($"[DatabaseService] SyncFirmaProfiliAsync hatasÃ„Â±: {ex.Message}");
             }
 
             NotifyFirmaProfiliChanged(f);
@@ -600,7 +650,7 @@ namespace ErmayMuhasebe.Services
                 CariId = t.CariId,
                 CariUnvan = t.CariUnvan,
                 Tarih = DateTime.Now,
-                Aciklama = t.Aciklama + " (Tekliften Dönüştürüldü)",
+                Aciklama = t.Aciklama + " (Tekliften DÃƒÂ¶nÃƒÂ¼Ã…Å¸tÃƒÂ¼rÃƒÂ¼ldÃƒÂ¼)",
                 GenelToplam = t.GenelToplam,
                 Durum = "Bekliyor",
                 OdemeBilgisi = t.OdemeBilgisi,
@@ -622,7 +672,7 @@ namespace ErmayMuhasebe.Services
 
             await SaveSiparisWithDetailsAsync(s, sDetails);
             
-            t.Durum = "Onaylandı";
+            t.Durum = "OnaylandÃ„Â±";
             await SaveTeklifAsync(t);
             
             return s.Id;
@@ -641,10 +691,10 @@ namespace ErmayMuhasebe.Services
                 CariUnvan = s.CariUnvan,
                 Tarih = DateTime.Now,
                 FaturaNo = await GetNextFaturaNoAsync("Satis"),
-                Tur = "Satış",
+                Tur = "SatÃ„Â±Ã…Å¸",
                 GenelToplam = s.GenelToplam,
                 DovizTuru = details.FirstOrDefault()?.ParaBirimi,
-                Aciklama = s.Aciklama + " (Siparişten Dönüştürüldü)"
+                Aciklama = s.Aciklama + " (SipariÃ…Å¸ten DÃƒÂ¶nÃƒÂ¼Ã…Å¸tÃƒÂ¼rÃƒÂ¼ldÃƒÂ¼)"
             };
 
             var fDetails = details.Select(d => new FaturaDetay
@@ -664,7 +714,7 @@ namespace ErmayMuhasebe.Services
             if (cari != null)
             {
                 await SaveFaturaWithTransactionAsync(f, fDetails, cari);
-                s.Durum = "Faturalandırıldı";
+                s.Durum = "FaturalandÃ„Â±rÃ„Â±ldÃ„Â±";
                 await SaveSiparisAsync(s);
                 return f.Id;
             }
@@ -718,7 +768,7 @@ namespace ErmayMuhasebe.Services
 
                 if (cloudUsers == null || cloudUsers.Count == 0)
                 {
-                    // Bulutta henüz kullanıcı yoksa fakat yerelde gerçek kullanıcılar varsa, buluta yükle
+                    // Bulutta henÃƒÂ¼z kullanÃ„Â±cÃ„Â± yoksa fakat yerelde gerÃƒÂ§ek kullanÃ„Â±cÃ„Â±lar varsa, buluta yÃƒÂ¼kle
                     var nonDefaultUsers = localUsers.Where(u => !string.IsNullOrEmpty(u.Username) && (u.Username.ToLower() != "admin" || localUsers.Count == 1)).ToList();
                     foreach (var lu in nonDefaultUsers)
                     {
@@ -727,7 +777,7 @@ namespace ErmayMuhasebe.Services
                     return;
                 }
 
-                // Bulutta kullanıcılar var:
+                // Bulutta kullanÃ„Â±cÃ„Â±lar var:
                 bool hasRealCloudUsers = cloudUsers.Any(u => !string.IsNullOrEmpty(u.Username) && u.Username.ToLower() != "admin");
 
                 foreach (var cu in cloudUsers)
@@ -768,7 +818,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // Eğer bulutta gerçek kullanıcılar varsa ve yerelde sadece dokunulmamış varsayılan admin duruyorsa, yerel admin'i temizle
+                // EÃ„Å¸er bulutta gerÃƒÂ§ek kullanÃ„Â±cÃ„Â±lar varsa ve yerelde sadece dokunulmamÃ„Â±Ã…Å¸ varsayÃ„Â±lan admin duruyorsa, yerel admin'i temizle
                 if (hasRealCloudUsers)
                 {
                     var defaultAdmin = await globalConn.Table<User>().FirstOrDefaultAsync(u => u.Username == "admin");
@@ -791,7 +841,6 @@ namespace ErmayMuhasebe.Services
                 var globalConn = GetGlobalConnection();
                 await globalConn.CreateTableAsync<User>();
                 var count = await globalConn.Table<User>().CountAsync();
-                if (count > 0) return; // Keep existing users!
 
                 // Check if setup_config.json or setup_initial_user.json exists to restore user's setup credentials
                 var configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
@@ -805,11 +854,65 @@ namespace ErmayMuhasebe.Services
                     {
                         var json = await File.ReadAllTextAsync(pathToRead);
                         var doc = System.Text.Json.JsonDocument.Parse(json);
+                        
+                        // SMTP ve FactoryResetPassword Ayarlarını Global FirmaProfili'ne Kaydet
+                        var profil = await GetFirmaProfiliAsync();
+                        if (profil != null)
+                        {
+                            bool profilUpdated = false;
+                            if (doc.RootElement.TryGetProperty("FactoryResetPassword", out var frpElem) && frpElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                var val = frpElem.GetString()?.Trim();
+                                if (!string.IsNullOrEmpty(val)) { profil.FactoryResetPassword = val; profilUpdated = true; }
+                            }
+                            if (doc.RootElement.TryGetProperty("SmtpEmail", out var seElem) && seElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                var val = seElem.GetString()?.Trim();
+                                if (!string.IsNullOrEmpty(val)) 
+                                { 
+                                    profil.SmtpUser = val; 
+                                    
+                                    if (doc.RootElement.TryGetProperty("SmtpHost", out var shElem) && shElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                        profil.SmtpHost = shElem.GetString()?.Trim() ?? "smtp.gmail.com";
+                                    else
+                                        profil.SmtpHost = "smtp.gmail.com";
+                                        
+                                    if (doc.RootElement.TryGetProperty("SmtpPort", out var sprtElem) && sprtElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                    {
+                                        if (int.TryParse(sprtElem.GetString()?.Trim(), out int port))
+                                            profil.SmtpPort = port;
+                                        else
+                                            profil.SmtpPort = 587;
+                                    }
+                                    else
+                                        profil.SmtpPort = 587;
+                                        
+                                    if (doc.RootElement.TryGetProperty("SmtpSsl", out var sslElem) && sslElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                                        profil.SmtpSsl = sslElem.GetString()?.Trim().ToLower() == "true";
+                                    else
+                                        profil.SmtpSsl = true;
+
+                                    profilUpdated = true; 
+                                }
+                            }
+                            if (doc.RootElement.TryGetProperty("SmtpPass", out var spElem) && spElem.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                var val = spElem.GetString()?.Trim();
+                                if (!string.IsNullOrEmpty(val)) { profil.SmtpPass = val; profilUpdated = true; }
+                            }
+                            if (profilUpdated)
+                            {
+                                await SaveFirmaProfiliAsync(profil);
+                            }
+                        }
+
                         if (doc.RootElement.TryGetProperty("Users", out var usersArray))
                         {
                             bool added = false;
-                            foreach (var userElem in usersArray.EnumerateArray())
+                            if (count == 0)
                             {
+                                foreach (var userElem in usersArray.EnumerateArray())
+                                {
                                 var uName = userElem.GetProperty("Username").GetString()?.Trim();
                                 var uPass = userElem.GetProperty("Password").GetString()?.Trim();
                                 var uEmail = userElem.TryGetProperty("Email", out var emElem) ? emElem.GetString()?.Trim() : null;
@@ -839,13 +942,15 @@ namespace ErmayMuhasebe.Services
                                     });
                                 }
                             }
+                            try { System.IO.File.Delete(pathToRead); } catch { }
                             if (added) return;
+                        }
                         }
                     }
                     catch { }
                 }
 
-                // Bulut aktifse, varsayılan admin/123 yerine önce buluttaki kullanıcıları çekmeyi dene
+                // Bulut aktifse, varsayÃ„Â±lan admin/123 yerine ÃƒÂ¶nce buluttaki kullanÃ„Â±cÃ„Â±larÃ„Â± ÃƒÂ§ekmeyi dene
                 if (_sync.IsConnected)
                 {
                     await SyncUsersWithCloudAsync();
@@ -1177,10 +1282,10 @@ namespace ErmayMuhasebe.Services
             
             // 2. Define Regex for parsing Description: "{Name} - {Type}..."
             // We look for the standard patterns used in CariListViewModel
-            var pattern = new Regex(@"^(.*?) - (Tahsilat|Ödeme)");
+            var pattern = new Regex(@"^(.*?) - (Tahsilat|Ãƒâ€“deme)");
 
             // --- KASA DEEP CLEAN ---
-            var kasaHarekets = await _db.Table<KasaHareket>().Where(x => x.IslemTuru == "Tahsilat" || x.IslemTuru == "Ödeme").ToListAsync();
+            var kasaHarekets = await _db.Table<KasaHareket>().Where(x => x.IslemTuru == "Tahsilat" || x.IslemTuru == "Ãƒâ€“deme").ToListAsync();
             foreach (var k in kasaHarekets)
             {
                 bool isZombie = false;
@@ -1253,7 +1358,7 @@ namespace ErmayMuhasebe.Services
             }
 
             // --- BANKA DEEP CLEAN ---
-            var bankaHarekets = await _db.Table<BankaHareket>().Where(x => x.IslemTuru == "Tahsilat" || x.IslemTuru == "Ödeme").ToListAsync();
+            var bankaHarekets = await _db.Table<BankaHareket>().Where(x => x.IslemTuru == "Tahsilat" || x.IslemTuru == "Ãƒâ€“deme").ToListAsync();
             foreach (var b in bankaHarekets)
             {
                 bool isZombie = false;
@@ -1491,7 +1596,7 @@ namespace ErmayMuhasebe.Services
             var cari = await GetCariAsync(fatura.CariId);
             if (cari != null)
             {
-                if (string.IsNullOrEmpty(fatura.Tur)) fatura.Tur = isSatis ? "Satış" : "Alış";
+                if (string.IsNullOrEmpty(fatura.Tur)) fatura.Tur = isSatis ? "SatÃ„Â±Ã…Å¸" : "AlÃ„Â±Ã…Å¸";
                 await SaveFaturaWithTransactionAsync(fatura, detaylar, cari, updateCari, updateStok, updateStokPrices);
             }
             else
@@ -1538,15 +1643,15 @@ namespace ErmayMuhasebe.Services
 
             // 2. Reverse Stock Balances
             string tur = (item.Tur ?? "").Trim();
-            bool isSatis = tur.Contains("Satış", StringComparison.OrdinalIgnoreCase) || 
+            bool isSatis = tur.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                            tur.Contains("Satis", StringComparison.OrdinalIgnoreCase);
 
-            if (!isSatis && !tur.Contains("Alış", StringComparison.OrdinalIgnoreCase) && !tur.Contains("Alis", StringComparison.OrdinalIgnoreCase))
+            if (!isSatis && !tur.Contains("AlÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) && !tur.Contains("Alis", StringComparison.OrdinalIgnoreCase))
             {
                 var sampleSh = await _db.Table<StokHareket>().FirstOrDefaultAsync(s => s.FaturaId == item.Id || (!string.IsNullOrEmpty(fNo) && s.EvrakNo == fNo));
                 if (sampleSh != null)
                 {
-                    if (sampleSh.Cikan > 0 || (sampleSh.IslemTuru != null && (sampleSh.IslemTuru.Contains("Satış", StringComparison.OrdinalIgnoreCase) || sampleSh.IslemTuru.Contains("Satis", StringComparison.OrdinalIgnoreCase))))
+                    if (sampleSh.Cikan > 0 || (sampleSh.IslemTuru != null && (sampleSh.IslemTuru.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || sampleSh.IslemTuru.Contains("Satis", StringComparison.OrdinalIgnoreCase))))
                         isSatis = true;
                 }
             }
@@ -1576,7 +1681,7 @@ namespace ErmayMuhasebe.Services
             }
 
             // 4. Delete Movements (Hard Delete needed to clear history)
-            string islemTuru = isSatis ? "Satış Faturası" : "Alış Faturası";
+            string islemTuru = isSatis ? "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" : "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±";
             
             // Delete with FaturaId or EvrakNo
             await _db.ExecuteAsync("DELETE FROM FaturaDetay WHERE FaturaId = ?", item.Id);
@@ -1605,8 +1710,8 @@ namespace ErmayMuhasebe.Services
                 var currentStok = await _db.Table<StokKart>().FirstOrDefaultAsync(s => s.Id == sId);
                 if (currentStok != null)
                 {
-                    var sumGiren = await _db.ExecuteScalarAsync<double>("SELECT IFNULL(SUM(CASE WHEN Giren > 0 THEN Giren WHEN Miktar > 0 AND (IslemTuru LIKE '%Giriş%' OR IslemTuru LIKE '%Alış%' OR IslemTuru LIKE '%Açılış%') THEN Miktar ELSE 0 END), 0) FROM StokHareket WHERE StokId = ?", sId);
-                    var sumCikan = await _db.ExecuteScalarAsync<double>("SELECT IFNULL(SUM(CASE WHEN Cikan > 0 THEN Cikan WHEN Miktar > 0 AND (IslemTuru LIKE '%Çıkış%' OR IslemTuru LIKE '%Satış%') THEN Miktar ELSE 0 END), 0) FROM StokHareket WHERE StokId = ?", sId);
+                    var sumGiren = await _db.ExecuteScalarAsync<double>("SELECT IFNULL(SUM(CASE WHEN Giren > 0 THEN Giren WHEN Miktar > 0 AND (IslemTuru LIKE '%GiriÃ…Å¸%' OR IslemTuru LIKE '%AlÃ„Â±Ã…Å¸%' OR IslemTuru LIKE '%AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸%') THEN Miktar ELSE 0 END), 0) FROM StokHareket WHERE StokId = ?", sId);
+                    var sumCikan = await _db.ExecuteScalarAsync<double>("SELECT IFNULL(SUM(CASE WHEN Cikan > 0 THEN Cikan WHEN Miktar > 0 AND (IslemTuru LIKE '%Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸%' OR IslemTuru LIKE '%SatÃ„Â±Ã…Å¸%') THEN Miktar ELSE 0 END), 0) FROM StokHareket WHERE StokId = ?", sId);
                     currentStok.Miktar = sumGiren - sumCikan;
                     await _db.UpdateAsync(currentStok);
                     await _sync.SyncStokAsync(currentStok);
@@ -1624,7 +1729,7 @@ namespace ErmayMuhasebe.Services
         {
             await EnsureInitializedAsync();
             
-            bool isSatis = (item.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || 
+            bool isSatis = (item.Tur ?? "").Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                            (item.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase);
 
             var detaylar = await _db.Table<FaturaDetay>().Where(d => d.FaturaId == item.Id).ToListAsync();
@@ -1660,7 +1765,7 @@ namespace ErmayMuhasebe.Services
                 {
                     StokId = d.StokId,
                     Tarih = item.Tarih,
-                    IslemTuru = isSatis ? "Satış Faturası" : "Alış Faturası",
+                    IslemTuru = isSatis ? "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" : "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±",
                     Miktar = (decimal)d.Miktar,
                     Fiyat = d.BirimFiyat,
                     Aciklama = $"Fatura No: {item.FaturaNo}",
@@ -1680,7 +1785,7 @@ namespace ErmayMuhasebe.Services
                  CariId = item.CariId,
                  CariUnvan = item.CariUnvan,
                  Tarih = item.Tarih,
-                 IslemTuru = isSatis ? "Satış Faturası" : "Alış Faturası",
+                 IslemTuru = isSatis ? "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" : "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±",
                  Aciklama = $"Fatura No: {item.FaturaNo}",
                  EvrakNo = item.FaturaNo,
                  Borc = isSatis ? item.GenelToplam : 0,
@@ -1865,7 +1970,7 @@ namespace ErmayMuhasebe.Services
                 var endDay = startDay.AddDays(1);
                 var amount = item.Borc + item.Alacak;
 
-                // 2. KASA HAREKETİ - Match by Date AND (Amount OR DocumentNo)
+                // 2. KASA HAREKETÃ„Â° - Match by Date AND (Amount OR DocumentNo)
                 var kasalar = await _db.Table<KasaHareket>()
                     .Where(k => k.Tarih >= startDay && k.Tarih < endDay)
                     .ToListAsync();
@@ -1892,7 +1997,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 3. BANKA HAREKETİ
+                // 3. BANKA HAREKETÃ„Â°
                 var bankalar = await _db.Table<BankaHareket>()
                     .Where(b => b.Tarih >= startDay && b.Tarih < endDay)
                     .ToListAsync();
@@ -1919,7 +2024,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 4. KREDİ KARTI İŞLEMİ
+                // 4. KREDÃ„Â° KARTI Ã„Â°Ã…ÂLEMÃ„Â°
                 var kkIslemler = await _db.Table<KrediKartiIslem>()
                         .Where(k => k.MusteriId == item.CariId && k.Tarih >= startDay && k.Tarih < endDay)
                         .ToListAsync();
@@ -1936,7 +2041,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 5. ÇEK/SENET TEMİZLİĞİ (Eğer EvrakNo çek portföy nosu ise)
+                // 5. Ãƒâ€¡EK/SENET TEMÃ„Â°ZLÃ„Â°Ã„ÂÃ„Â° (EÃ„Å¸er EvrakNo ÃƒÂ§ek portfÃƒÂ¶y nosu ise)
                 if (!string.IsNullOrEmpty(item.EvrakNo))
                 {
                     var ceks = await _db.Table<Cek>().Where(c => c.CariId == item.CariId && c.PortfoyNo == item.EvrakNo).ToListAsync();
@@ -2024,8 +2129,8 @@ namespace ErmayMuhasebe.Services
                 }
                 else
                 {
-                    double sumGiren = (double)remaining.Sum(h => h.Giren > 0 ? h.Giren : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Giriş") || (h.IslemTuru ?? "").Contains("Alış") || (h.IslemTuru ?? "").Contains("Açılış")) ? h.Miktar : 0));
-                    double sumCikan = (double)remaining.Sum(h => h.Cikan > 0 ? h.Cikan : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Çıkış") || (h.IslemTuru ?? "").Contains("Satış")) ? h.Miktar : 0));
+                    double sumGiren = (double)remaining.Sum(h => h.Giren > 0 ? h.Giren : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("GiriÃ…Å¸") || (h.IslemTuru ?? "").Contains("AlÃ„Â±Ã…Å¸") || (h.IslemTuru ?? "").Contains("AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸")) ? h.Miktar : 0));
+                    double sumCikan = (double)remaining.Sum(h => h.Cikan > 0 ? h.Cikan : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸") || (h.IslemTuru ?? "").Contains("SatÃ„Â±Ã…Å¸")) ? h.Miktar : 0));
                     currentStok.Miktar = sumGiren - sumCikan;
                 }
                 await _db.UpdateAsync(currentStok);
@@ -2096,7 +2201,7 @@ namespace ErmayMuhasebe.Services
                         {
                             linkedCH.Borc = item.Cikan;
                             linkedCH.Alacak = 0;
-                            linkedCH.IslemTuru = item.IslemTuru ?? "Ödeme (Nakit)";
+                            linkedCH.IslemTuru = item.IslemTuru ?? "Ãƒâ€“deme (Nakit)";
                         }
 
                         // Apply new balance
@@ -2214,7 +2319,7 @@ namespace ErmayMuhasebe.Services
                             linkedCH.Alacak = item.Giren;
                             linkedCH.Borc = 0;
                             linkedCH.IslemTuru = item.IslemTuru switch {
-                                "Kredi Kartı Tahsilat" => "Tahsilat (KK)",
+                                "Kredi KartÃ„Â± Tahsilat" => "Tahsilat (KK)",
                                 "Gelen Havale" => "Tahsilat (EFT)",
                                 _ => item.IslemTuru ?? "Tahsilat (Nakit)"
                             };
@@ -2224,9 +2329,9 @@ namespace ErmayMuhasebe.Services
                             linkedCH.Borc = item.Cikan;
                             linkedCH.Alacak = 0;
                             linkedCH.IslemTuru = item.IslemTuru switch {
-                                "Kredi Kartı Ödemesi" => "Ödeme (KK)",
-                                "Giden Havale" => "Ödeme (EFT)",
-                                _ => item.IslemTuru ?? "Ödeme (Nakit)"
+                                "Kredi KartÃ„Â± Ãƒâ€“demesi" => "Ãƒâ€“deme (KK)",
+                                "Giden Havale" => "Ãƒâ€“deme (EFT)",
+                                _ => item.IslemTuru ?? "Ãƒâ€“deme (Nakit)"
                             };
                         }
 
@@ -2361,11 +2466,11 @@ namespace ErmayMuhasebe.Services
                 hareket.CariId = cari.Id;
                 hareket.CariUnvan = cari.Unvan ?? "";
                 hareket.Tarih = cek.IslemTarihi;
-                string baseType = (cek.CekTuru == "Alınan" || cek.CekTuru == "Musteri") ? "Tahsilat" : "Ödeme";
-                hareket.IslemTuru = $"{baseType} (Çek)";
-                hareket.Aciklama = $"[Çek] Portföy: {cek.PortfoyNo}, Seri: {cek.SeriNo}, Banka: {cek.Banka}";
+                string baseType = (cek.CekTuru == "AlÃ„Â±nan" || cek.CekTuru == "Musteri") ? "Tahsilat" : "Ãƒâ€“deme";
+                hareket.IslemTuru = $"{baseType} (Ãƒâ€¡ek)";
+                hareket.Aciklama = $"[Ãƒâ€¡ek] PortfÃƒÂ¶y: {cek.PortfoyNo}, Seri: {cek.SeriNo}, Banka: {cek.Banka}";
                 hareket.Borc = (cek.CekTuru == "Verilen" || cek.CekTuru == "Kendi") ? cek.Tutar : 0;
-                hareket.Alacak = (cek.CekTuru == "Alınan" || cek.CekTuru == "Musteri") ? cek.Tutar : 0;
+                hareket.Alacak = (cek.CekTuru == "AlÃ„Â±nan" || cek.CekTuru == "Musteri") ? cek.Tutar : 0;
                 hareket.Vade = cek.VadeTarihi;
                 
                 if (isNew) tran.Insert(hareket); else tran.Update(hareket);
@@ -2377,7 +2482,7 @@ namespace ErmayMuhasebe.Services
             }
         }
 
-        // Handle Endorsement (Yönlendirme / Ciro)
+        // Handle Endorsement (YÃƒÂ¶nlendirme / Ciro)
         string supEvrakNo = "Cek-SUP-" + (cek.PortfoyNo ?? cek.CekNo ?? "");
         if (cek.YonlendirilenCariId.HasValue)
         {
@@ -2404,9 +2509,9 @@ namespace ErmayMuhasebe.Services
                 supHareket.CariId = supplier.Id;
                 supHareket.CariUnvan = supplier.Unvan ?? "";
                 supHareket.Tarih = cek.YonlendirmeTarihi ?? DateTime.Now;
-                supHareket.IslemTuru = "Ödeme (Çek Ciro)";
-                supHareket.Aciklama = $"[Çek Cirosu] Ciro Edilen Çek: {cek.Banka} ({cek.CariUnvan} üzerinden)";
-                supHareket.Borc = cek.Tutar; // Biz tedarikçiye ödedik
+                supHareket.IslemTuru = "Ãƒâ€“deme (Ãƒâ€¡ek Ciro)";
+                supHareket.Aciklama = $"[Ãƒâ€¡ek Cirosu] Ciro Edilen Ãƒâ€¡ek: {cek.Banka} ({cek.CariUnvan} ÃƒÂ¼zerinden)";
+                supHareket.Borc = cek.Tutar; // Biz tedarikÃƒÂ§iye ÃƒÂ¶dedik
                 supHareket.Alacak = 0;
                 supHareket.Vade = cek.VadeTarihi;
 
@@ -2460,7 +2565,7 @@ namespace ErmayMuhasebe.Services
             return res;
         }
 
-        // --- KREDİ KARTI İŞLEMLERİ ---
+        // --- KREDÃ„Â° KARTI Ã„Â°Ã…ÂLEMLERÃ„Â° ---
         public async Task<List<KrediKartiIslem>> GetKrediKartiIslemleriAsync() 
         {
             await EnsureInitializedAsync();
@@ -2518,7 +2623,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                bool isOdeme = item.IslemTuru == "Ödeme" || item.IslemTuru == "Borç Dekontu";
+                bool isOdeme = item.IslemTuru == "Ãƒâ€“deme" || item.IslemTuru == "BorÃƒÂ§ Dekontu";
                 if (cariHareket != null)
                 {
                     // --- UPDATE EXISTING CARI HAREKET ---
@@ -2536,8 +2641,8 @@ namespace ErmayMuhasebe.Services
                     cariHareket.CariId = item.MusteriId;
                     cariHareket.CariUnvan = item.MusteriUnvan;
                     cariHareket.Tarih = item.Tarih;
-                    cariHareket.Aciklama = "Kredi Kartı - " + item.Aciklama;
-                    cariHareket.IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (KK)";
+                    cariHareket.Aciklama = "Kredi KartÃ„Â± - " + item.Aciklama;
+                    cariHareket.IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (KK)";
                     
                     cariHareket.Borc = isOdeme ? item.Tutar : 0;
                     cariHareket.Alacak = isOdeme ? 0 : item.Tutar;
@@ -2562,8 +2667,8 @@ namespace ErmayMuhasebe.Services
                         CariUnvan = item.MusteriUnvan,
                         Tarih = item.Tarih,
                         EvrakNo = evrakNo,
-                        Aciklama = "Kredi Kartı - " + item.Aciklama,
-                        IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (KK)",
+                        Aciklama = "Kredi KartÃ„Â± - " + item.Aciklama,
+                        IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (KK)",
                         Borc = isOdeme ? item.Tutar : 0,
                         Alacak = isOdeme ? 0 : item.Tutar
                     };
@@ -2581,7 +2686,7 @@ namespace ErmayMuhasebe.Services
                 }
 
                 // ==========================================
-                // 3. Handle Endorsed Supplier (Yönlendirilen Tedarikçi)
+                // 3. Handle Endorsed Supplier (YÃƒÂ¶nlendirilen TedarikÃƒÂ§i)
                 // ==========================================
                 string supEvrakNo = $"KK-SUP-{item.Id}";
                 var supHareket = tran.Table<CariHareket>().FirstOrDefault(x => x.EvrakNo == supEvrakNo);
@@ -2623,7 +2728,7 @@ namespace ErmayMuhasebe.Services
                                 CariUnvan = supplier.Unvan,
                                 Tarih = item.Tarih,
                                 EvrakNo = supEvrakNo,
-                                IslemTuru = "Ödeme (KK Ciro)",
+                                IslemTuru = "Ãƒâ€“deme (KK Ciro)",
                                 Aciklama = $"Ciro Edilen KK ({item.MusteriUnvan})",
                                 Borc = item.Tutar, 
                                 Alacak = 0
@@ -2676,7 +2781,7 @@ namespace ErmayMuhasebe.Services
         }
 
         
-        // --- HAVALE / EFT İŞLEMLERİ ---
+        // --- HAVALE / EFT Ã„Â°Ã…ÂLEMLERÃ„Â° ---
         public async Task<List<EftIslem>> GetEftIslemleriAsync() 
         {
             await EnsureInitializedAsync();
@@ -2724,7 +2829,7 @@ namespace ErmayMuhasebe.Services
                     cariHareket = candidates.FirstOrDefault(x => Math.Abs(x.Alacak - oldAmount) < 0.05m);
                 }
 
-                bool isOdeme = item.IslemTuru == "Ödeme" || item.IslemTuru == "Borç Dekontu";
+                bool isOdeme = item.IslemTuru == "Ãƒâ€“deme" || item.IslemTuru == "BorÃƒÂ§ Dekontu";
                 if (cariHareket != null)
                 {
                     var oldCari = tran.Find<CariKart>(cariHareket.CariId);
@@ -2741,8 +2846,8 @@ namespace ErmayMuhasebe.Services
                     cariHareket.Borc = isOdeme ? item.Tutar : 0;
                     cariHareket.Alacak = isOdeme ? 0 : item.Tutar;
                     cariHareket.EvrakNo = evrakNo;
-                    cariHareket.IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (EFT)";
-                    cariHareket.Aciklama = $"EFT İşlemi: {item.Banka} - {item.DekontNo}";
+                    cariHareket.IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (EFT)";
+                    cariHareket.Aciklama = $"EFT Ã„Â°Ã…Å¸lemi: {item.Banka} - {item.DekontNo}";
                     tran.Update(cariHareket);
 
                     var newCari = tran.Find<CariKart>(item.MusteriId);
@@ -2763,8 +2868,8 @@ namespace ErmayMuhasebe.Services
                         Borc = isOdeme ? item.Tutar : 0,
                         Alacak = isOdeme ? 0 : item.Tutar,
                         EvrakNo = evrakNo,
-                        IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (EFT)",
-                        Aciklama = $"EFT İşlemi: {item.Banka} - {item.DekontNo}"
+                        IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (EFT)",
+                        Aciklama = $"EFT Ã„Â°Ã…Å¸lemi: {item.Banka} - {item.DekontNo}"
                     };
                     tran.Insert(move);
 
@@ -2796,8 +2901,8 @@ namespace ErmayMuhasebe.Services
                         supHareket.CariUnvan = item.YonlendirilenCariUnvan ?? "";
                         supHareket.Tarih = item.YonlendirmeTarihi ?? DateTime.Now;
                         supHareket.Borc = item.Tutar;
-                        supHareket.IslemTuru = "Ödeme (EFT)";
-                        supHareket.Aciklama = $"EFT Yönlendirildi: {item.Banka} ({item.MusteriUnvan}'den)";
+                        supHareket.IslemTuru = "Ãƒâ€“deme (EFT)";
+                        supHareket.Aciklama = $"EFT YÃƒÂ¶nlendirildi: {item.Banka} ({item.MusteriUnvan}'den)";
                         tran.Update(supHareket);
 
                         var newSup = tran.Find<CariKart>(item.YonlendirilenCariId.Value);
@@ -2816,8 +2921,8 @@ namespace ErmayMuhasebe.Services
                             Tarih = item.YonlendirmeTarihi ?? DateTime.Now,
                             Borc = item.Tutar,
                             EvrakNo = supEvrakNo,
-                            IslemTuru = "Ödeme (Havale / EFT)",
-                            Aciklama = $"EFT Yönlendirildi: {item.Banka} ({item.MusteriUnvan}'den)"
+                            IslemTuru = "Ãƒâ€“deme (Havale / EFT)",
+                            Aciklama = $"EFT YÃƒÂ¶nlendirildi: {item.Banka} ({item.MusteriUnvan}'den)"
                         };
                         tran.Insert(move);
 
@@ -3016,7 +3121,7 @@ namespace ErmayMuhasebe.Services
                     cariHareket = candidates.FirstOrDefault(x => Math.Abs(x.Alacak - oldAmount) < 0.05m || Math.Abs(x.Borc - oldAmount) < 0.05m);
                 }
 
-                bool isOdeme = islem.IslemTuru == "Ödeme" || islem.IslemTuru == "Borç Dekontu";
+                bool isOdeme = islem.IslemTuru == "Ãƒâ€“deme" || islem.IslemTuru == "BorÃƒÂ§ Dekontu";
                 if (cariHareket != null)
                 {
                     var oldCari = tran.Find<CariKart>(cariHareket.CariId);
@@ -3033,8 +3138,8 @@ namespace ErmayMuhasebe.Services
                     cariHareket.Borc = isOdeme ? islem.Tutar : 0;
                     cariHareket.Alacak = isOdeme ? 0 : islem.Tutar;
                     cariHareket.EvrakNo = evrakNo;
-                    cariHareket.IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (KK)";
-                    cariHareket.Aciklama = $"Kredi Kartı Fişi: {islem.Banka} - {islem.KartNo}";
+                    cariHareket.IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (KK)";
+                    cariHareket.Aciklama = $"Kredi KartÃ„Â± FiÃ…Å¸i: {islem.Banka} - {islem.KartNo}";
                     tran.Update(cariHareket);
 
                     var newCari = tran.Find<CariKart>(islem.MusteriId);
@@ -3055,8 +3160,8 @@ namespace ErmayMuhasebe.Services
                         Borc = isOdeme ? islem.Tutar : 0,
                         Alacak = isOdeme ? 0 : islem.Tutar,
                         EvrakNo = evrakNo,
-                        IslemTuru = (isOdeme ? "Ödeme" : "Tahsilat") + " (KK)",
-                        Aciklama = $"Kredi Kartı Fişi: {islem.Banka} - {islem.KartNo}"
+                        IslemTuru = (isOdeme ? "Ãƒâ€“deme" : "Tahsilat") + " (KK)",
+                        Aciklama = $"Kredi KartÃ„Â± FiÃ…Å¸i: {islem.Banka} - {islem.KartNo}"
                     };
                     tran.Insert(move);
 
@@ -3088,8 +3193,8 @@ namespace ErmayMuhasebe.Services
                         supHareket.CariUnvan = islem.YonlendirilenCariUnvan ?? "";
                         supHareket.Tarih = islem.YonlendirmeTarihi ?? DateTime.Now;
                         supHareket.Borc = islem.Tutar;
-                        supHareket.IslemTuru = "Ödeme (KK)";
-                        supHareket.Aciklama = $"Ciro Edilen KK Fişi: {islem.Banka} - {islem.MusteriUnvan} üzerinden";
+                        supHareket.IslemTuru = "Ãƒâ€“deme (KK)";
+                        supHareket.Aciklama = $"Ciro Edilen KK FiÃ…Å¸i: {islem.Banka} - {islem.MusteriUnvan} ÃƒÂ¼zerinden";
                         tran.Update(supHareket);
 
                         var newSup = tran.Find<CariKart>(islem.YonlendirilenCariId.Value);
@@ -3108,8 +3213,8 @@ namespace ErmayMuhasebe.Services
                             Tarih = islem.YonlendirmeTarihi ?? DateTime.Now,
                             Borc = islem.Tutar,
                             EvrakNo = supEvrakNo,
-                            IslemTuru = "Ödeme (KK)",
-                            Aciklama = $"Ciro Edilen KK Fişi: {islem.Banka} - {islem.MusteriUnvan} üzerinden"
+                            IslemTuru = "Ãƒâ€“deme (KK)",
+                            Aciklama = $"Ciro Edilen KK FiÃ…Å¸i: {islem.Banka} - {islem.MusteriUnvan} ÃƒÂ¼zerinden"
                         };
                         tran.Insert(move);
 
@@ -3354,29 +3459,29 @@ namespace ErmayMuhasebe.Services
                 var startDate = start ?? new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
                 var endDate = end ?? DateTime.Now;
 
-                // Nakit (Kasa): KartTuru = 'Kasa' olan BankaKart kayıtlarının GuncelBakiye toplamı
+                // Nakit (Kasa): KartTuru = 'Kasa' olan BankaKart kayÃ„Â±tlarÃ„Â±nÃ„Â±n GuncelBakiye toplamÃ„Â±
                 result.TotalCash = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(GuncelBakiye),0) FROM BankaKart WHERE KartTuru = 'Kasa'");
 
-                // Banka: KartTuru = 'Banka' olan kayıtların GuncelBakiye toplamı
+                // Banka: KartTuru = 'Banka' olan kayÃ„Â±tlarÃ„Â±n GuncelBakiye toplamÃ„Â±
                 result.TotalBank = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(GuncelBakiye),0) FROM BankaKart WHERE KartTuru = 'Banka'");
 
-                // Alacaklar: Müşterilerin Borc > Alacak (biz müşteriye fatura kestik, henüz ödenmedi)
+                // Alacaklar: MÃƒÂ¼Ã…Å¸terilerin Borc > Alacak (biz mÃƒÂ¼Ã…Å¸teriye fatura kestik, henÃƒÂ¼z ÃƒÂ¶denmedi)
                 result.TotalReceivable = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Borc - Alacak),0) FROM CariKart WHERE Borc > Alacak AND (NOT IsDeleted OR IsDeleted IS NULL)");
 
-                // Borçlar: Tedarikçilerin Alacak > Borc (bize mal geldi, henüz ödemedik)
+                // BorÃƒÂ§lar: TedarikÃƒÂ§ilerin Alacak > Borc (bize mal geldi, henÃƒÂ¼z ÃƒÂ¶demedik)
                 result.TotalPayable = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Alacak - Borc),0) FROM CariKart WHERE Alacak > Borc AND (NOT IsDeleted OR IsDeleted IS NULL)");
 
-                // Dönemsel Tahsilat (Kasa + Banka Giren)
+                // DÃƒÂ¶nemsel Tahsilat (Kasa + Banka Giren)
                 result.TotalCollection = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Giren),0) FROM KasaHareket WHERE Tarih >= ? AND Tarih <= ?", startDate, endDate);
                 result.TotalCollection += await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Giren),0) FROM BankaHareket WHERE Tarih >= ? AND Tarih <= ?", startDate, endDate);
 
-                // Dönemsel Ödeme (Kasa + Banka Cikan)
+                // DÃƒÂ¶nemsel Ãƒâ€“deme (Kasa + Banka Cikan)
                 result.TotalPayment = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Cikan),0) FROM KasaHareket WHERE Tarih >= ? AND Tarih <= ?", startDate, endDate);
                 result.TotalPayment += await _db.ExecuteScalarAsync<decimal>(
@@ -3403,23 +3508,23 @@ namespace ErmayMuhasebe.Services
     {
         var tomorrow = today.AddDays(1);
         
-        // 1. Ciro (Fatura Bazlı - SQL Optimized)
+        // 1. Ciro (Fatura BazlÃ„Â± - SQL Optimized)
         stats.GunlukCiro = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(GenelToplam), 0) FROM Fatura WHERE Tarih >= ? AND Tarih < ? AND (Tur = 'Satış' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", 
+            "SELECT IFNULL(SUM(GenelToplam), 0) FROM Fatura WHERE Tarih >= ? AND Tarih < ? AND (Tur = 'SatÃ„Â±Ã…Å¸' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", 
             today, tomorrow);
             
         stats.AylikCiro = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(GenelToplam), 0) FROM Fatura WHERE Tarih >= ? AND (Tur = 'Satış' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", 
+            "SELECT IFNULL(SUM(GenelToplam), 0) FROM Fatura WHERE Tarih >= ? AND (Tur = 'SatÃ„Â±Ã…Å¸' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", 
             startOfMonth);
         
-        // 2. Tahsilat (Kasa ve Banka Girişleri - Ay bazlı - SQL Optimized)
+        // 2. Tahsilat (Kasa ve Banka GiriÃ…Å¸leri - Ay bazlÃ„Â± - SQL Optimized)
         decimal kasaTahsilat = await _db.ExecuteScalarAsync<decimal>(
             "SELECT IFNULL(SUM(Giren), 0) FROM KasaHareket WHERE Tarih >= ?", startOfMonth);
         decimal bankaTahsilat = await _db.ExecuteScalarAsync<decimal>(
             "SELECT IFNULL(SUM(Giren), 0) FROM BankaHareket WHERE Tarih >= ?", startOfMonth);
         stats.ToplamTahsilat = kasaTahsilat + bankaTahsilat;
         
-        // 3. Bekleyen Ödemeler (Cari Bakiyeleri - SQL Optimized)
+        // 3. Bekleyen Ãƒâ€“demeler (Cari Bakiyeleri - SQL Optimized)
         stats.ToplamBorc = await _db.ExecuteScalarAsync<decimal>(
             "SELECT IFNULL(SUM(Alacak - Borc), 0) FROM CariKart WHERE Alacak > Borc AND (NOT IsDeleted OR IsDeleted IS NULL)");
         stats.ToplamAlacak = await _db.ExecuteScalarAsync<decimal>(
@@ -3429,23 +3534,23 @@ namespace ErmayMuhasebe.Services
         stats.KritikStokSayisi = await _db.ExecuteScalarAsync<int>(
             "SELECT COUNT(*) FROM StokKart WHERE (NOT IsDeleted OR IsDeleted IS NULL) AND Miktar <= (CASE WHEN MinSeviye > 0 THEN MinSeviye ELSE 5 END)");
 
-        // 5. Nakit Varlığı (SQL Optimized)
+        // 5. Nakit VarlÃ„Â±Ã„Å¸Ã„Â± (SQL Optimized)
         stats.ToplamNakitVarligi = await _db.ExecuteScalarAsync<decimal>(
             "SELECT IFNULL(SUM(GuncelBakiye), 0) FROM BankaKart");
 
-        // 6. Bugün Ödenecek / Tahsilat
+        // 6. BugÃƒÂ¼n Ãƒâ€“denecek / Tahsilat
         // Faturalar
         stats.BugunTahsilat = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (Tur = 'Satış' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", today, tomorrow);
+            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (Tur = 'SatÃ„Â±Ã…Å¸' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", today, tomorrow);
         stats.BugunOdenecek = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (Tur = 'Alış' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", today, tomorrow);
+            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (Tur = 'AlÃ„Â±Ã…Å¸' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", today, tomorrow);
             
         stats.BekleyenOdeme = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE (Tur = 'Alış' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)");
+            "SELECT IFNULL(SUM(GenelToplam - Odenen), 0) FROM Fatura WHERE (Tur = 'AlÃ„Â±Ã…Å¸' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)");
             
-        // Çekler (Gelen Çekler Tahsilat, Verilen Çekler Ödeme)
+        // Ãƒâ€¡ekler (Gelen Ãƒâ€¡ekler Tahsilat, Verilen Ãƒâ€¡ekler Ãƒâ€“deme)
         decimal bugunCekTahsilat = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT IFNULL(SUM(Tutar), 0) FROM Cek WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (CekTuru != 'Verilen') AND (Durum = 'Portföyde' OR Durum = 'Portfoyde')", today, tomorrow);
+            "SELECT IFNULL(SUM(Tutar), 0) FROM Cek WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (CekTuru != 'Verilen') AND (Durum = 'PortfÃƒÂ¶yde' OR Durum = 'Portfoyde')", today, tomorrow);
         decimal bugunCekOdeme = await _db.ExecuteScalarAsync<decimal>(
             "SELECT IFNULL(SUM(Tutar), 0) FROM Cek WHERE VadeTarihi >= ? AND VadeTarihi < ? AND (CekTuru = 'Verilen')", today, tomorrow);
             
@@ -3457,7 +3562,7 @@ namespace ErmayMuhasebe.Services
         
         // Stock Turnover Estimate: (Approximated COGS via Alis / Current Stock Value)
         decimal yearlyPurchase = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'Alış' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", lastYear);
+            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'AlÃ„Â±Ã…Å¸' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", lastYear);
         decimal currentInvValue = await _db.ExecuteScalarAsync<decimal>(
             "SELECT SUM(Miktar * AlisFiyati) FROM StokKart WHERE (NOT IsDeleted OR IsDeleted IS NULL)");
         if (currentInvValue > 0)
@@ -3465,7 +3570,7 @@ namespace ErmayMuhasebe.Services
 
         // Collection Period (DSO) Estimate: (Total Receivables / Yearly Sales) * 365
         decimal yearlySales = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'Satış' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", lastYear);
+            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'SatÃ„Â±Ã…Å¸' OR Tur = 'Satis') AND (NOT IsDeleted OR IsDeleted IS NULL)", lastYear);
         if (yearlySales > 0)
             stats.CariTahsilatSuresi = (int)(Math.Round((stats.ToplamAlacak / yearlySales) * 365, 0));
         
@@ -3473,7 +3578,7 @@ namespace ErmayMuhasebe.Services
 
         // 8. Profitability (This Month)
         decimal aylikAlis = await _db.ExecuteScalarAsync<decimal>(
-            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'Alış' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", startOfMonth);
+            "SELECT SUM(GenelToplam) FROM Fatura WHERE Tarih >= ? AND (Tur = 'AlÃ„Â±Ã…Å¸' OR Tur = 'Alis') AND (NOT IsDeleted OR IsDeleted IS NULL)", startOfMonth);
         
         stats.Karlilik = stats.AylikCiro - aylikAlis;
         if (stats.AylikCiro > 0)
@@ -3517,11 +3622,11 @@ namespace ErmayMuhasebe.Services
                 {
                     list.Add(new RecentTransactionItem {
                         Title = f.CariUnvan ?? (activeCaris.TryGetValue(f.CariId, out var c) ? c.Unvan : "Bilinmeyen Cari"),
-                        Description = f.Tur + " Faturası",
+                        Description = f.Tur + " FaturasÃ„Â±",
                         Amount = f.GenelToplam,
                         Date = f.Tarih,
-                        Type = (f.Tur?.Equals("Satış", StringComparison.OrdinalIgnoreCase) == true) ? "In" : "Out",
-                        TextColor = (f.Tur?.Equals("Satış", StringComparison.OrdinalIgnoreCase) == true) ? "#34D399" : "#F87171"
+                        Type = (f.Tur?.Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) == true) ? "In" : "Out",
+                        TextColor = (f.Tur?.Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) == true) ? "#34D399" : "#F87171"
                     });
                 }
             }
@@ -3530,10 +3635,10 @@ namespace ErmayMuhasebe.Services
             try
             {
                 var kasas = await _db.Table<KasaHareket>().OrderByDescending(k => k.Tarih).Take(count * 2).ToListAsync();
-                foreach(var k in kasas.Where(k => (k.IslemTuru == "Tahsilat" || k.IslemTuru == "Ödeme") && (!k.CariId.HasValue || k.CariId == 0 || activeCaris.ContainsKey(k.CariId.Value))))
+                foreach(var k in kasas.Where(k => (k.IslemTuru == "Tahsilat" || k.IslemTuru == "Ãƒâ€“deme") && (!k.CariId.HasValue || k.CariId == 0 || activeCaris.ContainsKey(k.CariId.Value))))
                 {
                     list.Add(new RecentTransactionItem {
-                        Title = k.CariUnvan ?? k.Aciklama ?? "Kasa İşlemi",
+                        Title = k.CariUnvan ?? k.Aciklama ?? "Kasa Ã„Â°Ã…Å¸lemi",
                         Description = k.IslemTuru + " (Nakit)",
                         Amount = k.IslemTuru == "Tahsilat" ? k.Giren : k.Cikan,
                         Date = k.Tarih,
@@ -3547,10 +3652,10 @@ namespace ErmayMuhasebe.Services
             try
             {
                 var bankas = await _db.Table<BankaHareket>().OrderByDescending(b => b.Tarih).Take(count * 2).ToListAsync();
-                foreach(var b in bankas.Where(b => (b.IslemTuru == "Tahsilat" || b.IslemTuru == "Ödeme") && (!b.CariId.HasValue || b.CariId == 0 || activeCaris.ContainsKey(b.CariId.Value))))
+                foreach(var b in bankas.Where(b => (b.IslemTuru == "Tahsilat" || b.IslemTuru == "Ãƒâ€“deme") && (!b.CariId.HasValue || b.CariId == 0 || activeCaris.ContainsKey(b.CariId.Value))))
                 {
                     list.Add(new RecentTransactionItem {
-                        Title = b.CariUnvan ?? b.Aciklama ?? "Banka İşlemi",
+                        Title = b.CariUnvan ?? b.Aciklama ?? "Banka Ã„Â°Ã…Å¸lemi",
                         Description = b.IslemTuru + " (Banka)",
                         Amount = b.IslemTuru == "Tahsilat" ? b.Giren : b.Cikan,
                         Date = b.Tarih,
@@ -3569,7 +3674,7 @@ namespace ErmayMuhasebe.Services
             await EnsureInitializedAsync();
             try
             {
-                // Alacaklı cariler (Bizden alacaklı değil, bize borçlu olanlar)
+                // AlacaklÃ„Â± cariler (Bizden alacaklÃ„Â± deÃ„Å¸il, bize borÃƒÂ§lu olanlar)
                 var allCariler = await _db.Table<CariKart>().ToListAsync();
                 var debtors = allCariler
                     .Where(c => !c.IsDeleted && (c.Borc - c.Alacak) > 0)
@@ -3580,7 +3685,7 @@ namespace ErmayMuhasebe.Services
                 var result = new List<CariAlertItem>();
                 foreach (var c in debtors)
                 {
-                    // En eski vadesi geçmemiş veya geçmiş borç hareketini bul
+                    // En eski vadesi geÃƒÂ§memiÃ…Å¸ veya geÃƒÂ§miÃ…Å¸ borÃƒÂ§ hareketini bul
                     var oldestVade = await _db.ExecuteScalarAsync<DateTime?>(
                         "SELECT MIN(Vade) FROM CariHareket WHERE CariId = ? AND Borc > 0 AND (Vade IS NOT NULL)", c.Id);
                     
@@ -3615,7 +3720,7 @@ namespace ErmayMuhasebe.Services
             await EnsureInitializedAsync();
             try
             {
-                // Borçlu olduğumuz cariler (Tedarikçiler vb.)
+                // BorÃƒÂ§lu olduÃ„Å¸umuz cariler (TedarikÃƒÂ§iler vb.)
                 var allCariler = await _db.Table<CariKart>().ToListAsync();
                 var creditors = allCariler
                     .Where(c => !c.IsDeleted && (c.Alacak - c.Borc) > 0)
@@ -3745,8 +3850,8 @@ namespace ErmayMuhasebe.Services
                  // Normalize to start of month for filtering if needed, but here simple matching month/year
                  var monthFaturas = faturas.Where(f => f.Tarih.Month == d.Month && f.Tarih.Year == d.Year).ToList();
                  
-                 var inc = monthFaturas.Where(f => f.Tur == "Satış" || f.Tur == "Satis").Sum(f => f.GenelToplam);
-                 var exp = monthFaturas.Where(f => f.Tur == "Alış" || f.Tur == "Alis").Sum(f => f.GenelToplam);
+                 var inc = monthFaturas.Where(f => f.Tur == "SatÃ„Â±Ã…Å¸" || f.Tur == "Satis").Sum(f => f.GenelToplam);
+                 var exp = monthFaturas.Where(f => f.Tur == "AlÃ„Â±Ã…Å¸" || f.Tur == "Alis").Sum(f => f.GenelToplam);
                  
                  result.Add(new IncomeExpenseItem {
                      Month = d.ToString("MMM"),
@@ -3776,7 +3881,7 @@ namespace ErmayMuhasebe.Services
                     .Where(b => b.Tarih >= s && b.Tarih <= eod && b.Cikan > 0)
                     .ToListAsync();
 
-                // Kasa tahsilatları (Giren > 0)
+                // Kasa tahsilatlarÃ„Â± (Giren > 0)
                 var kasaGelir = await _db.ExecuteScalarAsync<decimal>(
                     "SELECT COALESCE(SUM(Giren),0) FROM KasaHareket WHERE Tarih >= ? AND Tarih <= ?", s, eod);
                 var bankaGelir = await _db.ExecuteScalarAsync<decimal>(
@@ -3789,7 +3894,7 @@ namespace ErmayMuhasebe.Services
                 result.TotalExpenseThisMonth = toplamGider;
                 result.NetProfitLoss = toplamGelir - toplamGider;
 
-                // Önceki ay karşılaştırması
+                // Ãƒâ€“nceki ay karÃ…Å¸Ã„Â±laÃ…Å¸tÃ„Â±rmasÃ„Â±
                 var prevStart = s.AddMonths(-1);
                 var prevEnd = e.AddMonths(-1);
                 decimal prevGider = await _db.ExecuteScalarAsync<decimal>(
@@ -3800,15 +3905,15 @@ namespace ErmayMuhasebe.Services
                     ? (decimal)Math.Round((double)((toplamGider - prevGider) / prevGider * 100), 1)
                     : 0;
 
-                // Ödeme Kanalları
+                // Ãƒâ€“deme KanallarÃ„Â±
                 decimal kasaTotal = kasaGiderleri.Sum(k => k.Cikan);
                 decimal bankaTotal = bankaGiderleri.Sum(b => b.Cikan);
                 if (kasaTotal > 0) result.Channels.Add(new ChannelStat { Channel = "Nakit", Amount = kasaTotal });
                 if (bankaTotal > 0) result.Channels.Add(new ChannelStat { Channel = "Banka", Amount = bankaTotal });
 
-                // Kategoriler (Açıklama bazlı gruplama)
-                var tumGiderler = kasaGiderleri.Select(k => new { Aciklama = k.Aciklama ?? "Diğer", Tutar = k.Cikan, Kanal = "Nakit" })
-                    .Concat(bankaGiderleri.Select(b => new { Aciklama = b.Aciklama ?? "Diğer", Tutar = b.Cikan, Kanal = "Banka" }))
+                // Kategoriler (AÃƒÂ§Ã„Â±klama bazlÃ„Â± gruplama)
+                var tumGiderler = kasaGiderleri.Select(k => new { Aciklama = k.Aciklama ?? "DiÃ„Å¸er", Tutar = k.Cikan, Kanal = "Nakit" })
+                    .Concat(bankaGiderleri.Select(b => new { Aciklama = b.Aciklama ?? "DiÃ„Å¸er", Tutar = b.Cikan, Kanal = "Banka" }))
                     .ToList();
 
                 var kategoriler = tumGiderler
@@ -3823,14 +3928,14 @@ namespace ErmayMuhasebe.Services
                     .ToList();
                 result.Categories = kategoriler;
 
-                // En Yüksek 10 Harcama
+                // En YÃƒÂ¼ksek 10 Harcama
                 result.TopExpenses = tumGiderler
                     .OrderByDescending(g => g.Tutar)
                     .Take(10)
                     .Select(g => new ExpenseItemView { Description = g.Aciklama, Channel = g.Kanal, Amount = g.Tutar })
                     .ToList();
 
-                // Günlük Defter
+                // GÃƒÂ¼nlÃƒÂ¼k Defter
                 var ledgerKasa = kasaGiderleri.Select(k => new DailyLedgerItem
                 {
                     Date = k.Tarih, Description = k.Aciklama ?? "-", Channel = "Nakit", Amount = k.Cikan
@@ -3854,14 +3959,14 @@ namespace ErmayMuhasebe.Services
         {
             var a = aciklama.ToLowerInvariant();
             if (a.Contains("kira")) return "Kira";
-            if (a.Contains("elektrik") || a.Contains("su") || a.Contains("dogalgaz") || a.Contains("doğalgaz")) return "Faturalar";
-            if (a.Contains("maaş") || a.Contains("maas") || a.Contains("personel") || a.Contains("sgk")) return "Personel";
-            if (a.Contains("fatura") || a.Contains("alış") || a.Contains("alis") || a.Contains("tedarikç")) return "Tedarikçi Ödemeleri";
+            if (a.Contains("elektrik") || a.Contains("su") || a.Contains("dogalgaz") || a.Contains("doÃ„Å¸algaz")) return "Faturalar";
+            if (a.Contains("maaÃ…Å¸") || a.Contains("maas") || a.Contains("personel") || a.Contains("sgk")) return "Personel";
+            if (a.Contains("fatura") || a.Contains("alÃ„Â±Ã…Å¸") || a.Contains("alis") || a.Contains("tedarikÃƒÂ§")) return "TedarikÃƒÂ§i Ãƒâ€“demeleri";
             if (a.Contains("vergi") || a.Contains("kdv") || a.Contains("muhasebe")) return "Vergi & Muhasebe";
-            if (a.Contains("kargo") || a.Contains("nakliye") || a.Contains("taşıma")) return "Lojistik";
+            if (a.Contains("kargo") || a.Contains("nakliye") || a.Contains("taÃ…Å¸Ã„Â±ma")) return "Lojistik";
             if (a.Contains("reklam") || a.Contains("pazarlama")) return "Pazarlama";
-            if (a.Contains("bakım") || a.Contains("onarım") || a.Contains("tamir")) return "Bakım & Onarım";
-            return "Diğer";
+            if (a.Contains("bakÃ„Â±m") || a.Contains("onarÃ„Â±m") || a.Contains("tamir")) return "BakÃ„Â±m & OnarÃ„Â±m";
+            return "DiÃ„Å¸er";
         }
 
         public async Task<FinancialReportData> GetFinancialReportsAsync(DateTime? s = null, DateTime? e = null)
@@ -4021,11 +4126,11 @@ namespace ErmayMuhasebe.Services
                         if (oldFatura != null)
                         {
                             string oldTur = (oldFatura.Tur ?? "").Trim();
-                            bool oldIsSatisIade = oldTur.Contains("Satış İade", StringComparison.OrdinalIgnoreCase) || 
+                            bool oldIsSatisIade = oldTur.Contains("SatÃ„Â±Ã…Å¸ Ã„Â°ade", StringComparison.OrdinalIgnoreCase) || 
                                                   oldTur.Contains("Satis Iade", StringComparison.OrdinalIgnoreCase);
-                            bool oldIsAlisIade = oldTur.Contains("Alış İade", StringComparison.OrdinalIgnoreCase) || 
+                            bool oldIsAlisIade = oldTur.Contains("AlÃ„Â±Ã…Å¸ Ã„Â°ade", StringComparison.OrdinalIgnoreCase) || 
                                                  oldTur.Contains("Alis Iade", StringComparison.OrdinalIgnoreCase);
-                            bool oldIsSatis = !oldIsAlisIade && !oldIsSatisIade && (oldTur.Contains("Satış", StringComparison.OrdinalIgnoreCase) || 
+                            bool oldIsSatis = !oldIsAlisIade && !oldIsSatisIade && (oldTur.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                                               oldTur.Contains("Satis", StringComparison.OrdinalIgnoreCase));
 
                             bool oldStockInflow = oldIsAlisIade ? false : (oldIsSatisIade ? true : (!oldIsSatis));
@@ -4072,17 +4177,17 @@ namespace ErmayMuhasebe.Services
                     }
                     
                     string curTur = (fatura.Tur ?? "").Trim();
-                    bool isSatisIade = curTur.Contains("Satış İade", StringComparison.OrdinalIgnoreCase) || 
+                    bool isSatisIade = curTur.Contains("SatÃ„Â±Ã…Å¸ Ã„Â°ade", StringComparison.OrdinalIgnoreCase) || 
                                        curTur.Contains("Satis Iade", StringComparison.OrdinalIgnoreCase);
-                    bool isAlisIade = curTur.Contains("Alış İade", StringComparison.OrdinalIgnoreCase) || 
+                    bool isAlisIade = curTur.Contains("AlÃ„Â±Ã…Å¸ Ã„Â°ade", StringComparison.OrdinalIgnoreCase) || 
                                       curTur.Contains("Alis Iade", StringComparison.OrdinalIgnoreCase);
-                    bool currentIsSatis = !isAlisIade && !isSatisIade && (curTur.Contains("Satış", StringComparison.OrdinalIgnoreCase) || 
+                    bool currentIsSatis = !isAlisIade && !isSatisIade && (curTur.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                                           curTur.Contains("Satis", StringComparison.OrdinalIgnoreCase));
 
                     bool isStockInflow = isAlisIade ? false : (isSatisIade ? true : (!currentIsSatis));
                     bool isCariBorc = isSatisIade ? false : (isAlisIade ? true : currentIsSatis);
 
-                    string stokIslemTuru = isSatisIade ? "Satış İade Faturası" : (isAlisIade ? "Alış İade Faturası" : (currentIsSatis ? "Satış Faturası" : "Alış Faturası"));
+                    string stokIslemTuru = isSatisIade ? "SatÃ„Â±Ã…Å¸ Ã„Â°ade FaturasÃ„Â±" : (isAlisIade ? "AlÃ„Â±Ã…Å¸ Ã„Â°ade FaturasÃ„Â±" : (currentIsSatis ? "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" : "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±"));
                     string cariIslemTuru = stokIslemTuru;
 
                     // Automated Financial Payment/Collection Movement if paid
@@ -4097,8 +4202,8 @@ namespace ErmayMuhasebe.Services
                             EvrakNo = fatura.FaturaNo,
                             CariId = fatura.CariId,
                             CariUnvan = fatura.CariUnvan,
-                            IslemTuru = isKasaGiris ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
-                            Aciklama = $"Fatura No: {fatura.FaturaNo} Peşin Nakit",
+                            IslemTuru = isKasaGiris ? "Tahsilat (Fatura)" : "Ãƒâ€“deme (Fatura)",
+                            Aciklama = $"Fatura No: {fatura.FaturaNo} PeÃ…Å¸in Nakit",
                             Giren = isKasaGiris ? fatura.GenelToplam : 0,
                             Cikan = !isKasaGiris ? fatura.GenelToplam : 0,
                             TenantId = fatura.TenantId
@@ -4113,7 +4218,7 @@ namespace ErmayMuhasebe.Services
                             tran.Update(dbKasa);
                         }
                     }
-                    else if ((fatura.OdemeSekli == "Kredi Kartı" || fatura.OdemeSekli == "Banka Havalesi" || fatura.OdemeSekli == "Banka") && fatura.BankaId.HasValue && fatura.BankaId > 0)
+                    else if ((fatura.OdemeSekli == "Kredi KartÃ„Â±" || fatura.OdemeSekli == "Banka Havalesi" || fatura.OdemeSekli == "Banka") && fatura.BankaId.HasValue && fatura.BankaId > 0)
                     {
                         bool isBankaGiris = isSatisIade ? false : (isAlisIade ? true : currentIsSatis);
                         var bankaHareket = new BankaHareket
@@ -4124,7 +4229,7 @@ namespace ErmayMuhasebe.Services
                             EvrakNo = fatura.FaturaNo,
                             CariId = fatura.CariId,
                             CariUnvan = fatura.CariUnvan,
-                            IslemTuru = isBankaGiris ? "Tahsilat (Fatura)" : "Ödeme (Fatura)",
+                            IslemTuru = isBankaGiris ? "Tahsilat (Fatura)" : "Ãƒâ€“deme (Fatura)",
                             Aciklama = $"Fatura No: {fatura.FaturaNo} {fatura.OdemeSekli}",
                             Giren = isBankaGiris ? fatura.GenelToplam : 0,
                             Cikan = !isBankaGiris ? fatura.GenelToplam : 0,
@@ -4242,29 +4347,29 @@ namespace ErmayMuhasebe.Services
         }
         private void _matchInvoicePaymentsInternal(SQLiteConnection tran, int cariId)
         {
-            // 1. Faturaları Al (Tarih sırasına göre FIFO)
+            // 1. FaturalarÃ„Â± Al (Tarih sÃ„Â±rasÃ„Â±na gÃƒÂ¶re FIFO)
             var faturalar = tran.Table<Fatura>()
                 .Where(f => f.CariId == cariId && !f.IsDeleted)
                 .OrderBy(f => f.Tarih)
                 .ToList();
 
-            // 2. Tüm hareketleri al (Ödemeleri tespit etmek için)
+            // 2. TÃƒÂ¼m hareketleri al (Ãƒâ€“demeleri tespit etmek iÃƒÂ§in)
             var hareketler = tran.Table<CariHareket>()
                 .Where(h => h.CariId == cariId)
                 .ToList();
 
-            // Toplam Tahsilat Kapasitesi (Satışları kapatacak olanlar)
+            // Toplam Tahsilat Kapasitesi (SatÃ„Â±Ã…Å¸larÃ„Â± kapatacak olanlar)
             decimal totalCollection = hareketler.Where(h => 
-                (h.IslemTuru != null && (h.IslemTuru.Contains("Tahsilat") || h.IslemTuru.Contains("Alacak Dekontu") || h.IslemTuru == "Açılış" || h.IslemTuru == "İade")) && h.Alacak > 0
+                (h.IslemTuru != null && (h.IslemTuru.Contains("Tahsilat") || h.IslemTuru.Contains("Alacak Dekontu") || h.IslemTuru == "AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸" || h.IslemTuru == "Ã„Â°ade")) && h.Alacak > 0
             ).Sum(h => h.Alacak);
 
-            // Toplam Ödeme Kapasitesi (Alışları kapatacak olanlar)
+            // Toplam Ãƒâ€“deme Kapasitesi (AlÃ„Â±Ã…Å¸larÃ„Â± kapatacak olanlar)
             decimal totalPayment = hareketler.Where(h => 
-                (h.IslemTuru != null && (h.IslemTuru.Contains("Ödeme") || h.IslemTuru.Contains("Borç Dekontu") || h.IslemTuru == "Açılış" || h.IslemTuru == "İade")) && h.Borc > 0
+                (h.IslemTuru != null && (h.IslemTuru.Contains("Ãƒâ€“deme") || h.IslemTuru.Contains("BorÃƒÂ§ Dekontu") || h.IslemTuru == "AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸" || h.IslemTuru == "Ã„Â°ade")) && h.Borc > 0
             ).Sum(h => h.Borc);
 
-            // SATIŞ FATURALARI FIFO DAĞITIMI
-            var satisFaturalari = faturalar.Where(f => (f.Tur ?? "").Equals("Satış", System.StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Satis", System.StringComparison.OrdinalIgnoreCase)).ToList();
+            // SATIÃ…Â FATURALARI FIFO DAÃ„ÂITIMI
+            var satisFaturalari = faturalar.Where(f => (f.Tur ?? "").Equals("SatÃ„Â±Ã…Å¸", System.StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Satis", System.StringComparison.OrdinalIgnoreCase)).ToList();
             decimal remCollection = totalCollection;
             foreach (var f in satisFaturalari)
             {
@@ -4282,8 +4387,8 @@ namespace ErmayMuhasebe.Services
                 }
             }
 
-            // ALIŞ FATURALARI FIFO DAĞITIMI
-            var alisFaturalari = faturalar.Where(f => (f.Tur ?? "").Equals("Alış", System.StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Alis", System.StringComparison.OrdinalIgnoreCase)).ToList();
+            // ALIÃ…Â FATURALARI FIFO DAÃ„ÂITIMI
+            var alisFaturalari = faturalar.Where(f => (f.Tur ?? "").Equals("AlÃ„Â±Ã…Å¸", System.StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Alis", System.StringComparison.OrdinalIgnoreCase)).ToList();
             decimal remPayment = totalPayment;
             foreach (var f in alisFaturalari)
             {
@@ -4401,7 +4506,7 @@ namespace ErmayMuhasebe.Services
                 var allSH = tran.Table<StokHareket>().ToList();
                 foreach (var sh in allSH)
                 {
-                    bool isFtr = (sh.IslemTuru != null && (sh.IslemTuru.Contains("Fatura") || sh.IslemTuru.Contains("Satış") || sh.IslemTuru.Contains("Alış"))) ||
+                    bool isFtr = (sh.IslemTuru != null && (sh.IslemTuru.Contains("Fatura") || sh.IslemTuru.Contains("SatÃ„Â±Ã…Å¸") || sh.IslemTuru.Contains("AlÃ„Â±Ã…Å¸"))) ||
                                  (!string.IsNullOrEmpty(sh.EvrakNo) && (sh.EvrakNo.StartsWith("FTR") || sh.EvrakNo.StartsWith("FAT"))) ||
                                  (sh.FaturaId.HasValue && sh.FaturaId.Value > 0);
                     if (!isFtr) continue;
@@ -4422,7 +4527,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 1. CARI BAKİYELERİ (SQL ile toplu güncelleme)
+                // 1. CARI BAKÃ„Â°YELERÃ„Â° (SQL ile toplu gÃƒÂ¼ncelleme)
                 tran.Execute(@"
                     UPDATE CariKart SET 
                         Borc = IFNULL((SELECT SUM(Borc) FROM CariHareket WHERE CariId = CariKart.Id), 0),
@@ -4431,7 +4536,7 @@ namespace ErmayMuhasebe.Services
 
                 changedCaris = tran.Table<CariKart>().Where(x => !x.IsDeleted).ToList();
 
-                // 2. STOK MİKTARLARI VE ORTALAMA FİYATLARI
+                // 2. STOK MÃ„Â°KTARLARI VE ORTALAMA FÃ„Â°YATLARI
                 var remainingSH = tran.Table<StokHareket>().ToList();
                 var allStoklar = tran.Table<StokKart>().Where(s => !s.IsDeleted).ToList();
                 foreach (var stk in allStoklar)
@@ -4459,8 +4564,8 @@ namespace ErmayMuhasebe.Services
 
                         foreach (var m in moves)
                         {
-                            bool isGiris = (m.Giren > 0) || (m.IslemTuru != null && (m.IslemTuru.Contains("Giriş") || m.IslemTuru.Contains("Alış") || m.IslemTuru.Contains("Açılış")));
-                            bool isCikis = (m.Cikan > 0) || (m.IslemTuru != null && (m.IslemTuru.Contains("Çıkış") || m.IslemTuru.Contains("Satış")));
+                            bool isGiris = (m.Giren > 0) || (m.IslemTuru != null && (m.IslemTuru.Contains("GiriÃ…Å¸") || m.IslemTuru.Contains("AlÃ„Â±Ã…Å¸") || m.IslemTuru.Contains("AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸")));
+                            bool isCikis = (m.Cikan > 0) || (m.IslemTuru != null && (m.IslemTuru.Contains("Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸") || m.IslemTuru.Contains("SatÃ„Â±Ã…Å¸")));
                             decimal qty = m.Miktar > 0 ? m.Miktar : (m.Giren > 0 ? m.Giren : (m.Cikan > 0 ? m.Cikan : 0));
 
                             if (isGiris && qty > 0)
@@ -4497,7 +4602,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 3. BANKA/KASA BAKİYELERİ
+                // 3. BANKA/KASA BAKÃ„Â°YELERÃ„Â°
                 var bankalar = tran.Table<BankaKart>().ToList();
                 foreach(var b in bankalar)
                 {
@@ -4512,7 +4617,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 4. FATURA KAPATMALARI (FIFO EŞLEŞTİRME)
+                // 4. FATURA KAPATMALARI (FIFO EÃ…ÂLEÃ…ÂTÃ„Â°RME)
                 foreach (var c in changedCaris)
                 {
                     _matchInvoicePaymentsInternal(tran, c.Id);
@@ -4573,7 +4678,7 @@ namespace ErmayMuhasebe.Services
         {
             await EnsureInitializedAsync();
             var count = await _db.Table<Fatura>().CountAsync();
-            var prefix = (type == "Satis" || type == "Satış") ? "SF" : "AF";
+            var prefix = (type == "Satis" || type == "SatÃ„Â±Ã…Å¸") ? "SF" : "AF";
             return $"{prefix}-{DateTime.Now.Year}-{count + 1:0000}";
         }
     
@@ -4689,13 +4794,13 @@ namespace ErmayMuhasebe.Services
             string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ErmayMuhasebe");
             string logoPath = Path.Combine(dir, "company_logo.png");
 
-            // Buluttan logo_base64 boş gelirse, yerelde mevcut bir logo varsa ASLA ezme veya silme!
+            // Buluttan logo_base64 boÃ…Å¸ gelirse, yerelde mevcut bir logo varsa ASLA ezme veya silme!
             if (string.IsNullOrEmpty(item.LogoBase64))
             {
                 if (existing != null && !string.IsNullOrEmpty(existing.LogoBase64))
                 {
                     item.LogoBase64 = existing.LogoBase64;
-                    // Buluta da yereldeki logoyu gönder ki bulut veri tabanı güncellensin
+                    // Buluta da yereldeki logoyu gÃƒÂ¶nder ki bulut veri tabanÃ„Â± gÃƒÂ¼ncellensin
                     _ = Task.Run(async () => {
                         try { await _sync.SyncFirmaProfiliAsync(item); } catch { }
                     });
@@ -4909,7 +5014,7 @@ namespace ErmayMuhasebe.Services
             {
                 await EnsureInitializedAsync();
 
-                // 1. Faturalar Duplikasyon Temizliği
+                // 1. Faturalar Duplikasyon TemizliÃ„Å¸i
                 var allFaturalar = await _db.Table<Fatura>().ToListAsync();
                 var ftrGroups = allFaturalar.Where(x => !string.IsNullOrWhiteSpace(x.FaturaNo))
                                            .GroupBy(x => x.FaturaNo!.Trim())
@@ -4918,7 +5023,7 @@ namespace ErmayMuhasebe.Services
                 foreach (var grp in ftrGroups)
                 {
                     var list = grp.OrderByDescending(x => x.Id).ToList();
-                    // Öncelik FaturaDetay kaydı olan faturaya
+                    // Ãƒâ€“ncelik FaturaDetay kaydÃ„Â± olan faturaya
                     Fatura? canonical = null;
                     foreach (var item in list)
                     {
@@ -4952,7 +5057,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 2. Siparisler Duplikasyon Temizliği
+                // 2. Siparisler Duplikasyon TemizliÃ„Å¸i
                 var allSiparisler = await _db.Table<Siparis>().ToListAsync();
                 var sipGroups = allSiparisler.Where(x => !string.IsNullOrWhiteSpace(x.SiparisNo))
                                             .GroupBy(x => x.SiparisNo!.Trim())
@@ -4986,7 +5091,7 @@ namespace ErmayMuhasebe.Services
                     }
                 }
 
-                // 3. Teklifler Duplikasyon Temizliği
+                // 3. Teklifler Duplikasyon TemizliÃ„Å¸i
                 var allTeklifler = await _db.Table<Teklif>().ToListAsync();
                 var tekGroups = allTeklifler.Where(x => !string.IsNullOrWhiteSpace(x.TeklifNo))
                                            .GroupBy(x => x.TeklifNo!.Trim())
@@ -5145,7 +5250,7 @@ namespace ErmayMuhasebe.Services
                     if (f == null) continue;
                     int cloudFaturaId = f.Id;
 
-                    // Yerelde aynı numaraya sahip fakat Id != cloudFaturaId olan TÜM mükerrer kopyaları temizle
+                    // Yerelde aynÃ„Â± numaraya sahip fakat Id != cloudFaturaId olan TÃƒÅ“M mÃƒÂ¼kerrer kopyalarÃ„Â± temizle
                     if (!string.IsNullOrEmpty(f.FaturaNo))
                     {
                         var dupes = await _db.Table<Fatura>().Where(x => x.FaturaNo == f.FaturaNo && x.Id != cloudFaturaId).ToListAsync();
@@ -5327,9 +5432,8 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudStokHareketIds.Contains(local.Id))
                     {
-                        _ = Task.Run(async () => {
-                            try { await _sync.SyncStokHareketAsync(local); } catch { }
-                        });
+                        await _db.DeleteAsync(local);
+                        hasAnyChanges = true;
                     }
                 }
 
@@ -5383,9 +5487,8 @@ namespace ErmayMuhasebe.Services
                 {
                     if (!cloudCariHareketIds.Contains(local.Id))
                     {
-                        _ = Task.Run(async () => {
-                            try { await _sync.SyncCariHareketAsync(local); } catch { }
-                        });
+                        await _db.DeleteAsync(local);
+                        hasAnyChanges = true;
                     }
                 }
 
@@ -5406,7 +5509,7 @@ namespace ErmayMuhasebe.Services
                             ));
                         if (fatura != null && (ch.Borc != fatura.GenelToplam && ch.Alacak != fatura.GenelToplam))
                         {
-                            bool isSatis = (fatura.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || 
+                            bool isSatis = (fatura.Tur ?? "").Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                                            (fatura.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase) ||
                                            (fatura.Tur ?? "").StartsWith("Sat", StringComparison.OrdinalIgnoreCase);
                             if (isSatis) { ch.Borc = fatura.GenelToplam; ch.Alacak = 0; }
@@ -5439,7 +5542,7 @@ namespace ErmayMuhasebe.Services
 
                     if (!hasMovement)
                     {
-                        bool isSatis = (f.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || 
+                        bool isSatis = (f.Tur ?? "").Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || 
                                        (f.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase) ||
                                        (f.Tur ?? "").StartsWith("Sat", StringComparison.OrdinalIgnoreCase);
                         
@@ -5449,7 +5552,7 @@ namespace ErmayMuhasebe.Services
                             CariId = f.CariId,
                             CariUnvan = f.CariUnvan,
                             Tarih = f.Tarih != default ? f.Tarih : DateTime.Now,
-                            IslemTuru = isSatis ? "Satış Faturası" : "Alış Faturası",
+                            IslemTuru = isSatis ? "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" : "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±",
                             Aciklama = $"Fatura No: {f.FaturaNo}",
                             EvrakNo = f.FaturaNo,
                             Borc = isSatis ? f.GenelToplam : 0,
@@ -5506,7 +5609,7 @@ namespace ErmayMuhasebe.Services
                     if (s == null) continue;
                     int cloudSiparisId = s.Id;
 
-                    // Yerelde aynı numaraya sahip fakat Id != cloudSiparisId olan TÜM mükerrer kopyaları temizle
+                    // Yerelde aynÃ„Â± numaraya sahip fakat Id != cloudSiparisId olan TÃƒÅ“M mÃƒÂ¼kerrer kopyalarÃ„Â± temizle
                     if (!string.IsNullOrEmpty(s.SiparisNo))
                     {
                         var dupes = await _db.Table<Siparis>().Where(x => x.SiparisNo == s.SiparisNo && x.Id != cloudSiparisId).ToListAsync();
@@ -5614,7 +5717,7 @@ namespace ErmayMuhasebe.Services
                     if (t == null) continue;
                     int cloudTeklifId = t.Id;
 
-                    // Yerelde aynı numaraya sahip fakat Id != cloudTeklifId olan TÜM mükerrer kopyaları temizle
+                    // Yerelde aynÃ„Â± numaraya sahip fakat Id != cloudTeklifId olan TÃƒÅ“M mÃƒÂ¼kerrer kopyalarÃ„Â± temizle
                     if (!string.IsNullOrEmpty(t.TeklifNo))
                     {
                         var dupes = await _db.Table<Teklif>().Where(x => x.TeklifNo == t.TeklifNo && x.Id != cloudTeklifId).ToListAsync();
@@ -5683,20 +5786,29 @@ namespace ErmayMuhasebe.Services
                 }
             }
 
-            // 7.1 Pull Bankalar (Kasalar & Banka Kartları) from Cloud
+            // 7.1 Pull Bankalar (Kasalar & Banka KartlarÃ„Â±) from Cloud
             try
             {
                 var cloudBankalar = await _sync.PullBankalarAsync();
-                if (cloudBankalar != null)
+                if (cloudBankalar != null && cloudBankalar.Any())
                 {
-                    var cloudBankaIds = cloudBankalar.Where(x => x != null && !x.IsDeleted).Select(x => x.Id).ToHashSet();
+                    var cloudBankaMap = cloudBankalar.Where(x => x != null).ToDictionary(x => x.Id, x => x);
                     var localBankalar = await _db.Table<BankaKart>().ToListAsync();
                     foreach (var local in localBankalar)
                     {
-                        if (!cloudBankaIds.Contains(local.Id))
+                        if (cloudBankaMap.TryGetValue(local.Id, out var cloudBanka))
                         {
-                            await _db.DeleteAsync(local);
-                            hasAnyChanges = true;
+                            if (cloudBanka.IsDeleted && !local.IsDeleted)
+                            {
+                                await _db.DeleteAsync(local);
+                                hasAnyChanges = true;
+                            }
+                        }
+                        else if (!local.IsDeleted)
+                        {
+                            _ = Task.Run(async () => {
+                                try { await _sync.SyncBankaAsync(local); } catch { }
+                            });
                         }
                     }
 
@@ -5711,10 +5823,33 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (b.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else if (existing.GuncelBakiye != b.GuncelBakiye || existing.BankaAdi != b.BankaAdi || existing.HesapNo != b.HesapNo)
+                            else
                             {
-                                await _db.UpdateAsync(b);
-                                hasAnyChanges = true;
+                                // IMPORTANT: PRESERVE Kasa status!
+                                if (existing.KartTuru == "Kasa" && b.KartTuru != "Kasa")
+                                {
+                                    b.KartTuru = "Kasa";
+                                }
+                                else if (!string.IsNullOrEmpty(existing.KartTuru) && string.IsNullOrEmpty(b.KartTuru))
+                                {
+                                    b.KartTuru = existing.KartTuru;
+                                }
+
+                                if (string.IsNullOrEmpty(b.Yetkili) && !string.IsNullOrEmpty(existing.Yetkili))
+                                {
+                                    b.Yetkili = existing.Yetkili;
+                                }
+
+                                if (b.AcilisBakiyesi == 0 && existing.AcilisBakiyesi != 0)
+                                {
+                                    b.AcilisBakiyesi = existing.AcilisBakiyesi;
+                                }
+
+                                if (existing.GuncelBakiye != b.GuncelBakiye || existing.BankaAdi != b.BankaAdi || existing.HesapNo != b.HesapNo || existing.KartTuru != b.KartTuru)
+                                {
+                                    await _db.UpdateAsync(b);
+                                    hasAnyChanges = true;
+                                }
                             }
                         }
                     }
@@ -5729,16 +5864,19 @@ namespace ErmayMuhasebe.Services
             try
             {
                 var cloudKK = await _sync.PullKrediKartlariAsync();
-                if (cloudKK != null)
+                if (cloudKK != null && cloudKK.Any())
                 {
-                    var cloudKKIds = cloudKK.Where(x => x != null && !x.IsDeleted).Select(x => x.Id).ToHashSet();
+                    var cloudKKMap = cloudKK.Where(x => x != null).ToDictionary(x => x.Id, x => x);
                     var localKK = await _db.Table<KrediKartiIslem>().ToListAsync();
                     foreach (var local in localKK)
                     {
-                        if (!cloudKKIds.Contains(local.Id))
+                        if (cloudKKMap.TryGetValue(local.Id, out var cloudItem))
                         {
-                            await _db.DeleteAsync(local);
-                            hasAnyChanges = true;
+                            if (cloudItem.IsDeleted && !local.IsDeleted)
+                            {
+                                await _db.DeleteAsync(local);
+                                hasAnyChanges = true;
+                            }
                         }
                     }
 
@@ -5771,16 +5909,19 @@ namespace ErmayMuhasebe.Services
             try
             {
                 var cloudEFT = await _sync.PullEftIslemleriAsync();
-                if (cloudEFT != null)
+                if (cloudEFT != null && cloudEFT.Any())
                 {
-                    var cloudEftIds = cloudEFT.Where(x => x != null && !x.IsDeleted).Select(x => x.Id).ToHashSet();
+                    var cloudEftMap = cloudEFT.Where(x => x != null).ToDictionary(x => x.Id, x => x);
                     var localEft = await _db.Table<EftIslem>().ToListAsync();
                     foreach (var local in localEft)
                     {
-                        if (!cloudEftIds.Contains(local.Id))
+                        if (cloudEftMap.TryGetValue(local.Id, out var cloudItem))
                         {
-                            await _db.DeleteAsync(local);
-                            hasAnyChanges = true;
+                            if (cloudItem.IsDeleted && !local.IsDeleted)
+                            {
+                                await _db.DeleteAsync(local);
+                                hasAnyChanges = true;
+                            }
                         }
                     }
 
@@ -5811,19 +5952,8 @@ namespace ErmayMuhasebe.Services
 
             // 8. Pull KasaHareketler from Cloud
             var cloudKasaHareketler = await _sync.PullKasaHareketlerAsync();
-            if (cloudKasaHareketler != null)
+            if (cloudKasaHareketler != null && cloudKasaHareketler.Any())
             {
-                var cloudKasaHareketIds = cloudKasaHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localKasaHareketler = await _db.Table<KasaHareket>().ToListAsync();
-                foreach (var local in localKasaHareketler)
-                {
-                    if (!cloudKasaHareketIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
                 foreach (var kh in cloudKasaHareketler)
                 {
                     if (kh == null) continue;
@@ -5839,19 +5969,8 @@ namespace ErmayMuhasebe.Services
 
             // 9. Pull BankaHareketler from Cloud
             var cloudBankaHareketler = await _sync.PullBankaHareketlerAsync();
-            if (cloudBankaHareketler != null)
+            if (cloudBankaHareketler != null && cloudBankaHareketler.Any())
             {
-                var cloudBankaHareketIds = cloudBankaHareketler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localBankaHareketler = await _db.Table<BankaHareket>().ToListAsync();
-                foreach (var local in localBankaHareketler)
-                {
-                    if (!cloudBankaHareketIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
                 foreach (var bh in cloudBankaHareketler)
                 {
                     if (bh == null) continue;
@@ -5867,19 +5986,8 @@ namespace ErmayMuhasebe.Services
 
             // 10. Pull Cekler from Cloud
             var cloudCekler = await _sync.PullCeklerAsync();
-            if (cloudCekler != null)
+            if (cloudCekler != null && cloudCekler.Any())
             {
-                var cloudCekIds = cloudCekler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localCekler = await _db.Table<Cek>().ToListAsync();
-                foreach (var local in localCekler)
-                {
-                    if (!cloudCekIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
                 foreach (var ck in cloudCekler)
                 {
                     if (ck == null) continue;
@@ -5895,19 +6003,8 @@ namespace ErmayMuhasebe.Services
 
             // 11. Pull Senetler from Cloud
             var cloudSenetler = await _sync.PullSenetlerAsync();
-            if (cloudSenetler != null)
+            if (cloudSenetler != null && cloudSenetler.Any())
             {
-                var cloudSenetIds = cloudSenetler.Where(x => x != null).Select(x => x.Id).ToHashSet();
-                var localSenetler = await _db.Table<Senet>().ToListAsync();
-                foreach (var local in localSenetler)
-                {
-                    if (!cloudSenetIds.Contains(local.Id))
-                    {
-                        await _db.DeleteAsync(local);
-                        hasAnyChanges = true;
-                    }
-                }
-
                 foreach (var sn in cloudSenetler)
                 {
                     if (sn == null) continue;
@@ -6201,8 +6298,8 @@ namespace ErmayMuhasebe.Services
                         Label = date.ToString("dd MMM"),
                         Date = date,
                         Income = dData.Where(x => x.IslemTuru != null && x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Giren),
-                        Expense = dData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
-                        Redirected = dData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
+                        Expense = dData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
+                        Redirected = dData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
                     });
                 }
             }
@@ -6227,8 +6324,8 @@ namespace ErmayMuhasebe.Services
                         Label = $"{weekNum}. Hafta",
                         Date = date,
                         Income = wData.Where(x => x.IslemTuru != null && x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Giren),
-                        Expense = wData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
-                        Redirected = wData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
+                        Expense = wData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
+                        Redirected = wData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
                     });
                 }
             }
@@ -6252,8 +6349,8 @@ namespace ErmayMuhasebe.Services
                         Label = year.ToString(),
                         Date = new DateTime(year, 1, 1),
                         Income = yData.Where(x => x.IslemTuru != null && x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Giren),
-                        Expense = yData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
-                        Redirected = yData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ödeme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
+                        Expense = yData.Where(x => x.IslemTuru != null && (x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Cikan),
+                        Redirected = yData.Where(x => x.IslemTuru == null || (!x.IslemTuru.Contains("Tahsilat", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Ãƒâ€“deme", StringComparison.OrdinalIgnoreCase) && !x.IslemTuru.Contains("Odeme", StringComparison.OrdinalIgnoreCase))).Sum(x => x.Giren)
                     });
                 }
             }
@@ -6317,8 +6414,8 @@ namespace ErmayMuhasebe.Services
 
                     foreach (var m in movements)
                     {
-                        // "GİRİŞ" or Purchase Invoice adds to inventory and affects average price
-                        if (m.IslemTuru == "GİRİŞ" || m.IslemTuru == "Alış Faturası" || m.Giren > 0 || (m.IslemTuru != null && (m.IslemTuru.Contains("Giriş", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("Alış", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("Açılış", StringComparison.OrdinalIgnoreCase)))) 
+                        // "GÃ„Â°RÃ„Â°Ã…Â" or Purchase Invoice adds to inventory and affects average price
+                        if (m.IslemTuru == "GÃ„Â°RÃ„Â°Ã…Â" || m.IslemTuru == "AlÃ„Â±Ã…Å¸ FaturasÃ„Â±" || m.Giren > 0 || (m.IslemTuru != null && (m.IslemTuru.Contains("GiriÃ…Å¸", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("AlÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase)))) 
                         {
                             decimal qty = m.Miktar > 0 ? m.Miktar : (m.Giren > 0 ? m.Giren : 0);
                             decimal price = m.Fiyat;
@@ -6338,7 +6435,7 @@ namespace ErmayMuhasebe.Services
                                     averagePrice = currentTotalValue / currentQuantity;
                             }
                         }
-                        else if (m.IslemTuru == "ÇIKIŞ" || m.IslemTuru == "Satış Faturası" || m.Cikan > 0 || (m.IslemTuru != null && (m.IslemTuru.Contains("Çıkış", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("Satış", StringComparison.OrdinalIgnoreCase))))
+                        else if (m.IslemTuru == "Ãƒâ€¡IKIÃ…Â" || m.IslemTuru == "SatÃ„Â±Ã…Å¸ FaturasÃ„Â±" || m.Cikan > 0 || (m.IslemTuru != null && (m.IslemTuru.Contains("Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || m.IslemTuru.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase))))
                         {
                             decimal qty = m.Miktar > 0 ? m.Miktar : (m.Cikan > 0 ? m.Cikan : 0);
                             
@@ -6368,9 +6465,9 @@ namespace ErmayMuhasebe.Services
                     
                     decimal lastPurchasePrice = 0;
                     decimal lastSalesPrice = 0;
-                    var lastPurchase = movements.LastOrDefault(x => x.Giren > 0 || (x.IslemTuru != null && (x.IslemTuru.Contains("Giriş", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Alış", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Açılış", StringComparison.OrdinalIgnoreCase))));
+                    var lastPurchase = movements.LastOrDefault(x => x.Giren > 0 || (x.IslemTuru != null && (x.IslemTuru.Contains("GiriÃ…Å¸", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("AlÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase))));
                     if (lastPurchase != null) lastPurchasePrice = lastPurchase.Fiyat;
-                    var lastSale = movements.LastOrDefault(x => x.Cikan > 0 || (x.IslemTuru != null && (x.IslemTuru.Contains("Çıkış", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("Satış", StringComparison.OrdinalIgnoreCase))));
+                    var lastSale = movements.LastOrDefault(x => x.Cikan > 0 || (x.IslemTuru != null && (x.IslemTuru.Contains("Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || x.IslemTuru.Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase))));
                     if (lastSale != null) lastSalesPrice = lastSale.Fiyat;
 
                     if (!movements.Any())
@@ -6381,8 +6478,8 @@ namespace ErmayMuhasebe.Services
                     }
                     else
                     {
-                        double sumGiren = (double)movements.Sum(h => h.Giren > 0 ? h.Giren : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Giriş", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("Alış", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("Açılış", StringComparison.OrdinalIgnoreCase)) ? h.Miktar : 0));
-                        double sumCikan = (double)movements.Sum(h => h.Cikan > 0 ? h.Cikan : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Çıkış", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("Satış", StringComparison.OrdinalIgnoreCase)) ? h.Miktar : 0));
+                        double sumGiren = (double)movements.Sum(h => h.Giren > 0 ? h.Giren : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("GiriÃ…Å¸", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("AlÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("AÃƒÂ§Ã„Â±lÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase)) ? h.Miktar : 0));
+                        double sumCikan = (double)movements.Sum(h => h.Cikan > 0 ? h.Cikan : (h.Miktar > 0 && ((h.IslemTuru ?? "").Contains("Ãƒâ€¡Ã„Â±kÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || (h.IslemTuru ?? "").Contains("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase)) ? h.Miktar : 0));
                         double computedMiktar = sumGiren - sumCikan;
                         if (Math.Abs(stok.Miktar - computedMiktar) > 0.0001)
                         {
@@ -6433,12 +6530,12 @@ namespace ErmayMuhasebe.Services
             {
                 var cari = cariler.FirstOrDefault(c => c.Id == f.CariId);
                 string sehir = (cari?.Il ?? "Bilinmiyor").ToUpper().Trim();
-                if (string.IsNullOrEmpty(sehir)) sehir = "BİLİNMİYOR";
+                if (string.IsNullOrEmpty(sehir)) sehir = "BÃ„Â°LÃ„Â°NMÃ„Â°YOR";
 
                 if (!cityStats.ContainsKey(sehir))
                     cityStats[sehir] = new CityProfitStat { Sehir = sehir };
 
-                if ((f.Tur ?? "").Equals("Satış", StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase))
+                if ((f.Tur ?? "").Equals("SatÃ„Â±Ã…Å¸", StringComparison.OrdinalIgnoreCase) || (f.Tur ?? "").Equals("Satis", StringComparison.OrdinalIgnoreCase))
                     cityStats[sehir].SatisToplam += f.GenelToplam;
                 else
                     cityStats[sehir].AlisToplam += f.GenelToplam;
@@ -6495,16 +6592,18 @@ namespace ErmayMuhasebe.Services
                 string globalDbPath = Path.Combine(dir, "ErmayV4_Stable.db3");
                 if (!File.Exists(globalDbPath))
                 {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseService] Global DB not found at {globalDbPath}, skipping migration.");
                     return;
                 }
 
                 var currentCariCount = await _db.Table<CariKart>().CountAsync();
                 if (currentCariCount > 0)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseService] Current year DB already has {currentCariCount} Cariler, skipping migration.");
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Current year DB {currentFileName} is empty of Cariler. Initiating migration from {globalDbPath}...");
+                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Current year DB {currentFileName} is empty of Cariler. Checking global DB for migration...");
 
                 var pwd = ErmayMuhasebe.Data.Constants.DatabasePassword;
                 var globalOptions = new SQLiteConnectionString(globalDbPath, SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.FullMutex, true, key: pwd);
@@ -6512,6 +6611,24 @@ namespace ErmayMuhasebe.Services
 
                 try { await globalConn.ExecuteAsync("PRAGMA cipher_memory_security = OFF;"); } catch { }
                 try { await globalConn.ExecuteAsync("PRAGMA busy_timeout = 30000;"); } catch { }
+
+                // Check if global DB has meaningful data (more than just default admin user)
+                var globalUserCount = await globalConn.Table<User>().CountAsync();
+                var globalCariCount = await globalConn.Table<CariKart>().CountAsync();
+                var globalStokCount = await globalConn.Table<StokKart>().CountAsync();
+                var globalFaturaCount = await globalConn.Table<Fatura>().CountAsync();
+
+                // Only migrate if global DB has actual business data (not just empty/default)
+                bool hasMeaningfulData = globalCariCount > 0 || globalStokCount > 0 || globalFaturaCount > 0;
+                
+                if (!hasMeaningfulData)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseService] Global DB has no meaningful business data (Cariler: {globalCariCount}, Stoklar: {globalStokCount}, Faturalar: {globalFaturaCount}), skipping migration.");
+                    await globalConn.CloseAsync();
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[DatabaseService] Global DB has meaningful data, initiating migration...");
 
                 var globalCaris = await globalConn.Table<CariKart>().ToListAsync();
                 if (globalCaris.Count > 0)

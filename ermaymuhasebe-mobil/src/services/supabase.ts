@@ -263,39 +263,32 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     const p: any = {};
     if (data.id !== undefined) p.id = Number(data.id) || data.id;
     p.cari_kodu = data.cariKodu || data.cariKod || data.kod || data.cari_kodu || '';
+    p.kod = p.cari_kodu;
     p.unvan = data.unvan || '';
-    if (data.tur !== undefined) p.tur = data.tur;
     if (data.vergiDairesi !== undefined || data.vergi_dairesi !== undefined) p.vergi_dairesi = data.vergiDairesi ?? data.vergi_dairesi;
     if (data.vergiNo !== undefined || data.vergi_no !== undefined) p.vergi_no = data.vergiNo ?? data.vergi_no;
     if (data.tcNo !== undefined || data.tcKimlikNo !== undefined || data.tc_kimlik_no !== undefined) p.tc_kimlik_no = data.tcNo ?? data.tcKimlikNo ?? data.tc_kimlik_no;
-    if (data.ticaretSicilNo !== undefined || data.ticaret_sicil_no !== undefined) p.ticaret_sicil_no = data.ticaretSicilNo ?? data.ticaret_sicil_no;
     if (data.adres !== undefined) p.adres = data.adres;
-    if (data.sevkAdresi !== undefined || data.sevk_adresi !== undefined) p.sevk_adresi = data.sevkAdresi ?? data.sevk_adresi;
     p.sehir = data.sehir || data.il || '';
+    p.il = p.sehir;
     if (data.ilce !== undefined) p.ilce = data.ilce;
-    if (data.postaKodu !== undefined || data.posta_kodu !== undefined) p.posta_kodu = data.postaKodu ?? data.posta_kodu;
-    if (data.ulke !== undefined) p.ulke = data.ulke;
     if (data.telefon !== undefined) p.telefon = data.telefon;
     if (data.telefon2 !== undefined || data.cepTelefon !== undefined || data.cep_telefon !== undefined) p.telefon2 = data.telefon2 ?? data.cepTelefon ?? data.cep_telefon;
     p.yetkili_kisi = data.yetkiliKisi || data.yetkili || data.yetkili_kisi || '';
     p.email = data.email || data.eposta || '';
+    p.eposta = p.email;
     p.web_sitesi = data.webSitesi || data.webAdresi || data.web_sitesi || '';
-    if (data.iban !== undefined || data.iBAN !== undefined) p.iban = data.iban ?? data.iBAN;
-    if (data.odemePlani !== undefined || data.odeme_plani !== undefined) p.odeme_plani = data.odemePlani ?? data.odeme_plani;
-    if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    if (data.notlar !== undefined || data.aciklama !== undefined) p.notlar = data.notlar ?? data.aciklama;
     p.bakiye = Number(data.bakiye) || 0;
     p.borc_tutari = Number(data.borcTutari ?? data.borc ?? data.borc_tutari) || 0;
     p.alacak_tutari = Number(data.alacakTutari ?? data.alacak ?? data.alacak_tutari) || 0;
-    p.devir_borc = Number(data.devirBorc ?? data.devir_borc) || 0;
-    p.devir_alacak = Number(data.devirAlacak ?? data.devir_alacak) || 0;
+    p.borc = p.borc_tutari;
+    p.alacak = p.alacak_tutari;
     if (data.krediLimiti !== undefined || data.riskLimiti !== undefined || data.risk_limiti !== undefined) p.kredi_limiti = Number(data.krediLimiti ?? data.riskLimiti ?? data.risk_limiti) || 0;
     if (data.vadeGun !== undefined || data.vadeGunu !== undefined || data.vade_gunu !== undefined) p.vade_gun = Number(data.vadeGun ?? data.vadeGunu ?? data.vade_gunu) || 0;
+    if (data.iskontoOrani !== undefined || data.iskonto_orani !== undefined) p.iskonto_orani = Number(data.iskontoOrani ?? data.iskonto_orani) || 0;
     if (data.grup !== undefined) p.grup = data.grup;
-    if (data.latitude !== undefined) p.latitude = data.latitude;
-    if (data.longitude !== undefined) p.longitude = data.longitude;
-    if (data.riskTakibiYapilsin !== undefined || data.risk_takibi_yapilsin !== undefined) p.risk_takibi_yapilsin = data.riskTakibiYapilsin ?? data.risk_takibi_yapilsin;
-    if (data.vadeGecmisteEngelle !== undefined || data.vade_gecmiste_engelle !== undefined) p.vade_gecmiste_engelle = data.vadeGecmisteEngelle ?? data.vade_gecmiste_engelle;
-    if (data.faturadaRiskKontrolu !== undefined || data.faturada_risk_kontrolu !== undefined) p.faturada_risk_kontrolu = data.faturadaRiskKontrolu ?? data.faturada_risk_kontrolu;
+    if (data.sektor !== undefined) p.sektor = data.sektor;
     p.is_active = data.isActive !== false && data.is_active !== false && data.aktifMi !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     p.guncelleme_tarihi = new Date().toISOString();
@@ -309,15 +302,17 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.stok_adi = data.stokAdi || data.ad || data.stok_adi || '';
     if (data.barkod !== undefined) p.barkod = data.barkod;
     p.grup_adi = data.grupAdi || data.grup || data.kategori || data.grup_adi || '';
+    p.grup = p.grup_adi;
     p.birim = data.birim || 'Adet';
     p.alis_fiyati = Number(data.alisFiyati ?? data.alis_fiyati) || 0;
     p.satis_fiyati = Number(data.satisFiyati ?? data.satis_fiyati) || 0;
-    if (data.ortalamaAlisFiyati !== undefined || data.ortalama_alis_fiyati !== undefined) p.ortalama_alis_fiyati = Number(data.ortalamaAlisFiyati ?? data.ortalama_alis_fiyati) || 0;
-    if (data.ortalamaSatisFiyati !== undefined || data.ortalama_satis_fiyati !== undefined) p.ortalama_satis_fiyati = Number(data.ortalamaSatisFiyati ?? data.ortalama_satis_fiyati) || 0;
     p.kdv_orani = Number(data.kdvOrani ?? data.kdv ?? data.kdv_orani) || 20;
     p.mevcut_miktar = Number(data.mevcutMiktar ?? data.miktar ?? data.mevcut_miktar) || 0;
+    p.miktar = p.mevcut_miktar;
     p.kritik_seviye = Number(data.kritikSeviye ?? data.minSeviye ?? data.kritik_seviye) || 0;
+    p.kritik_stok = p.kritik_seviye;
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
+    if (data.resimUrl !== undefined || data.resim_url !== undefined) p.resim_url = data.resimUrl ?? data.resim_url;
     p.is_active = data.isActive !== false && data.is_active !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     p.guncelleme_tarihi = new Date().toISOString();
@@ -341,16 +336,6 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.is_kapali = data.isKapali === true || data.is_kapali === true || (Number(p.genel_toplam) > 0 && Number(data.odenen) >= Number(p.genel_toplam));
     if (data.kasaId !== undefined || data.kasa_id !== undefined) p.kasa_id = Number(data.kasaId ?? data.kasa_id) || null;
     if (data.bankaId !== undefined || data.banka_id !== undefined) p.banka_id = Number(data.bankaId ?? data.banka_id) || null;
-    if (data.odemeSekli !== undefined || data.odeme_sekli !== undefined) p.odeme_sekli = data.odemeSekli ?? data.odeme_sekli;
-    if (data.baglantiEvrakNo !== undefined || data.baglanti_evrak_no !== undefined) p.baglanti_evrak_no = data.baglantiEvrakNo ?? data.baglanti_evrak_no;
-    if (data.isEArsiv !== undefined || data.is_earsiv !== undefined) p.is_earsiv = data.isEArsiv ?? data.is_earsiv;
-    if (data.dovizTuru !== undefined || data.doviz_turu !== undefined) p.doviz_turu = data.dovizTuru ?? data.doviz_turu;
-    if (data.dovizKuru !== undefined || data.doviz_kuru !== undefined) p.doviz_kuru = Number(data.dovizKuru ?? data.doviz_kuru) || 0;
-    if (data.iptalMi !== undefined || data.iptal_mi !== undefined) p.iptal_mi = data.iptalMi ?? data.iptal_mi;
-    if (data.odenen !== undefined) p.odenen = Number(data.odenen) || 0;
-    if (data.vergiDairesi !== undefined || data.vergi_dairesi !== undefined) p.vergi_dairesi = data.vergiDairesi ?? data.vergi_dairesi;
-    if (data.vergiNo !== undefined || data.vergi_no !== undefined) p.vergi_no = data.vergiNo ?? data.vergi_no;
-    if (data.adres !== undefined) p.adres = data.adres;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     p.guncelleme_tarihi = new Date().toISOString();
     return p;
@@ -386,18 +371,8 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.borc = Number(data.borc) || 0;
     p.alacak = Number(data.alacak) || 0;
     p.bakiye = Number(data.bakiye) || 0;
-    if (data.vadeTarihi !== undefined || data.vade !== undefined || data.vade_tarihi !== undefined) {
-      p.vade_tarihi = data.vadeTarihi ?? data.vade ?? data.vade_tarihi;
-    }
     if (data.faturaId !== undefined || data.fatura_id !== undefined) p.fatura_id = Number(data.faturaId ?? data.fatura_id) || null;
-    if (data.kasaId !== undefined || data.kasa_id !== undefined) p.kasa_id = Number(data.kasaId ?? data.kasa_id) || null;
-    if (data.bankaId !== undefined || data.banka_id !== undefined) p.banka_id = Number(data.bankaId ?? data.banka_id) || null;
-    if (data.odemeTuru !== undefined || data.odeme_turu !== undefined) p.odeme_turu = data.odemeTuru ?? data.odeme_turu;
-    if (data.slipImage !== undefined || data.slip_image !== undefined) p.slip_image = data.slipImage ?? data.slip_image;
-    if (data.refId !== undefined || data.ref_id !== undefined) p.ref_id = data.refId ?? data.ref_id;
-    if (data.yonlendirilenCariId !== undefined || data.yonlendirilen_cari_id !== undefined) p.yonlendirilen_cari_id = data.yonlendirilenCariId ?? data.yonlendirilen_cari_id;
-    if (data.yonlendirilenCariUnvan !== undefined || data.yonlendirilen_cari_unvan !== undefined) p.yonlendirilen_cari_unvan = data.yonlendirilenCariUnvan ?? data.yonlendirilen_cari_unvan;
-    p.para_birimi = data.paraBirimi || data.para_birimi || 'TRY';
+    p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
 
@@ -422,14 +397,19 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
   if (t === 'bankalar') {
     const p: any = {};
     if (data.id !== undefined) p.id = Number(data.id) || data.id;
-    p.banka_adi = data.bankaAdi || data.banka_adi || '';
+    p.banka_adi = data.bankaAdi || data.banka_adi || data.hesapAdi || data.ad || '';
     p.sube_adi = data.subeAdi || data.sube || data.sube_adi || '';
     p.hesap_no = data.hesapNo || data.hesap_no || '';
     p.iban = data.iban || data.iBAN || '';
     p.bakiye = Number(data.bakiye) || 0;
     p.para_birimi = data.paraBirimi || data.dovizTuru || data.para_birimi || 'TRY';
-    if (data.aciklama !== undefined) p.aciklama = data.aciklama;
-    p.kart_turu = data.kartTuru || data.kart_turu || '';
+    let aciklama = data.aciklama;
+    if (data.kartTuru === 'Kasa' || data.turu === 'Kasa') {
+      aciklama = '[KASA]' + (data.yetkili ? `|${data.yetkili}` : (aciklama ? `|${aciklama}` : ''));
+    } else if (data.yetkili && !aciklama) {
+      aciklama = data.yetkili;
+    }
+    if (aciklama !== undefined) p.aciklama = aciklama;
     p.is_active = data.isActive !== false && data.is_active !== false;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
@@ -531,10 +511,6 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
     p.durum = data.durum || 'Bekliyor';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
-    if (data.odemeBilgisi !== undefined || data.odeme_bilgisi !== undefined) p.odeme_bilgisi = data.odemeBilgisi ?? data.odeme_bilgisi;
-    if (data.oncelik !== undefined) p.oncelik = data.oncelik;
-    if (data.baglantiEvrakNo !== undefined || data.baglanti_evrak_no !== undefined) p.baglanti_evrak_no = data.baglantiEvrakNo ?? data.baglanti_evrak_no;
-    if (data.pdfNotlar !== undefined || data.pdf_notlar !== undefined) p.pdf_notlar = data.pdfNotlar ?? data.pdf_notlar;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
@@ -569,7 +545,6 @@ export const sanitizePayloadForTable = (table: string, data: any): any => {
     p.genel_toplam = Number(data.genelToplam ?? data.genel_toplam) || 0;
     p.durum = data.durum || 'Bekliyor';
     if (data.aciklama !== undefined) p.aciklama = data.aciklama;
-    if (data.odemeBilgisi !== undefined || data.odeme_bilgisi !== undefined) p.odeme_bilgisi = data.odemeBilgisi ?? data.odeme_bilgisi;
     p.is_deleted = data.isDeleted === true || data.is_deleted === true;
     return p;
   }
@@ -752,11 +727,24 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
 
   if (t === 'bankalar') {
     const sube = row.sube_adi || row.sube || r.subeAdi || r.sube || '';
+    const isKasa = (typeof row.aciklama === 'string' && row.aciklama.startsWith('[KASA]')) ||
+                   (typeof r.aciklama === 'string' && r.aciklama.startsWith('[KASA]')) ||
+                   r.kartTuru === 'Kasa' || r.turu === 'Kasa';
+    let cleanAciklama = row.aciklama ?? r.aciklama;
+    let yetkili = r.yetkili;
+    if (typeof cleanAciklama === 'string' && cleanAciklama.startsWith('[KASA]')) {
+      const parts = cleanAciklama.split('|');
+      cleanAciklama = parts.slice(1).join('|');
+      if (!yetkili && cleanAciklama) yetkili = cleanAciklama;
+    }
     return {
       ...r,
       sube,
       subeAdi: sube,
-      iban: row.iban || r.iban || r.iBAN || ''
+      iban: row.iban || r.iban || r.iBAN || '',
+      kartTuru: isKasa ? 'Kasa' : (r.kartTuru || 'Vadesiz'),
+      yetkili: yetkili || r.yetkili,
+      aciklama: cleanAciklama
     };
   }
 
@@ -765,8 +753,13 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
       ...r,
       kasaKodu: row.kasa_kodu || r.kasaKodu || '',
       kasaAdi: row.kasa_adi || r.kasaAdi || '',
+      hesapAdi: row.kasa_adi || r.kasaAdi || '',
+      bankaAdi: row.kasa_adi || r.kasaAdi || '',
       ad: row.kasa_adi || r.kasaAdi || '',
-      bakiye: Number(row.bakiye ?? r.bakiye) || 0
+      sube: '',
+      subeAdi: '',
+      bakiye: Number(row.bakiye ?? r.bakiye) || 0,
+      kartTuru: 'Kasa'
     };
   }
 
@@ -1019,6 +1012,44 @@ export const writeData = async (path: string, data: any): Promise<boolean> => {
       console.error(`[Supabase] writeData error on ${table}:`, error.message);
       return false;
     }
+
+    // Dual-write support for Kasalar & Bankalar parity between Mobile and Desktop
+    if (table === 'bankalar' && (isKasaRecord(payload) || isKasaRecord(data) || data.kartTuru === 'Kasa')) {
+      try {
+        const kasaPayload = {
+          id: payload.id,
+          kasa_kodu: payload.hesap_no || data.hesapNo || data.kasaKodu || `KAS-${payload.id}`,
+          kasa_adi: payload.banka_adi || data.hesapAdi || data.bankaAdi || data.ad,
+          bakiye: Number(payload.bakiye ?? data.bakiye) || 0,
+          para_birimi: payload.para_birimi || data.dovizTuru || 'TRY',
+          aciklama: data.yetkili || data.aciklama || '',
+          is_active: payload.is_active !== false,
+          is_deleted: payload.is_deleted === true
+        };
+        await supabase.from('kasalar').upsert(kasaPayload, { onConflict: 'id' });
+      } catch (kasaErr) {
+        console.warn('[Supabase] Dual write to kasalar failed:', kasaErr);
+      }
+    } else if (table === 'kasalar') {
+      try {
+        const bankaPayload = {
+          id: payload.id,
+          banka_adi: payload.kasa_adi || data.kasaAdi || data.ad || '',
+          sube_adi: '',
+          hesap_no: payload.kasa_kodu || data.kasaKodu || '',
+          iban: '',
+          bakiye: Number(payload.bakiye ?? data.bakiye) || 0,
+          para_birimi: payload.para_birimi || data.paraBirimi || 'TRY',
+          aciklama: '[KASA]' + (data.aciklama ? `|${data.aciklama}` : ''),
+          is_active: payload.is_active !== false,
+          is_deleted: payload.is_deleted === true
+        };
+        await supabase.from('bankalar').upsert(bankaPayload, { onConflict: 'id' });
+      } catch (bErr) {
+        console.warn('[Supabase] Dual write to bankalar failed:', bErr);
+      }
+    }
+
     return true;
   } catch (err: any) {
     console.error(`[Supabase] writeData exception on ${path}:`, err.message);
@@ -1051,10 +1082,20 @@ export const deleteData = async (path: string): Promise<boolean> => {
           .from(table)
           .update(updatePayload)
           .eq('id', cleanId);
+        if (table === 'bankalar') {
+          try { await supabase.from('kasalar').update({ is_deleted: true }).eq('id', cleanId); } catch {}
+        } else if (table === 'kasalar') {
+          try { await supabase.from('bankalar').update({ is_deleted: true }).eq('id', cleanId); } catch {}
+        }
         if (!softErr) return true;
         console.warn(`[Supabase] soft delete error on ${table}/${id}:`, softErr.message);
       }
       const { error } = await supabase.from(table).delete().eq('id', cleanId);
+      if (table === 'bankalar') {
+        try { await supabase.from('kasalar').delete().eq('id', cleanId); } catch {}
+      } else if (table === 'kasalar') {
+        try { await supabase.from('bankalar').delete().eq('id', cleanId); } catch {}
+      }
       return !error;
     }
     return false;
@@ -1219,7 +1260,9 @@ export const KASA_KART_TURU = 'Kasa';
 
 export const isKasaRecord = (record: any): boolean => {
   if (!record) return false;
-  return record.kartTuru === 'Kasa' || record.turu === 'Kasa';
+  if (record.kartTuru === 'Kasa' || record.turu === 'Kasa') return true;
+  if (typeof record.aciklama === 'string' && record.aciklama.startsWith('[KASA]')) return true;
+  return false;
 };
 
 export const splitAccounts = (bankalar: any[]): { kasalar: any[]; bankalar: any[] } => {

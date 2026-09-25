@@ -233,6 +233,15 @@ namespace ErmayMuhasebe.Services
             if (!IsConnected) return false;
             try
             {
+                // Soft delete first so mobile / other clients immediately recognize deletion
+                try
+                {
+                    using var patchReq = CreateRequest(HttpMethod.Patch, $"{table}?id=eq.{id}");
+                    patchReq.Content = new StringContent("{\"is_deleted\":true}", Encoding.UTF8, "application/json");
+                    await _http.SendAsync(patchReq);
+                }
+                catch { }
+
                 using var req = CreateRequest(HttpMethod.Delete, $"{table}?id=eq.{id}");
                 using var res = await _http.SendAsync(req);
                 return res.IsSuccessStatusCode;
@@ -249,6 +258,14 @@ namespace ErmayMuhasebe.Services
             if (!IsConnected) return false;
             try
             {
+                try
+                {
+                    using var patchReq = CreateRequest(HttpMethod.Patch, $"{table}?{filter}");
+                    patchReq.Content = new StringContent("{\"is_deleted\":true}", Encoding.UTF8, "application/json");
+                    await _http.SendAsync(patchReq);
+                }
+                catch { }
+
                 using var req = CreateRequest(HttpMethod.Delete, $"{table}?{filter}");
                 using var res = await _http.SendAsync(req);
                 return res.IsSuccessStatusCode;
@@ -565,8 +582,11 @@ namespace ErmayMuhasebe.Services
             ["is_deleted"] = false
         };
 
-        private static CariHareket MapPayloadToCariHareket(JsonElement el)
+        private static CariHareket? MapPayloadToCariHareket(JsonElement el)
         {
+            if (el.TryGetProperty("is_deleted", out var isDel) && (isDel.ValueKind == JsonValueKind.True || (isDel.ValueKind == JsonValueKind.Number && isDel.GetInt32() == 1)))
+                return null;
+
             var h = new CariHareket();
             if (el.TryGetProperty("id", out var id)) h.Id = ParseInt(id);
             if (el.TryGetProperty("cari_id", out var ci)) h.CariId = ParseInt(ci);
@@ -602,8 +622,11 @@ namespace ErmayMuhasebe.Services
             };
         }
 
-        private static StokHareket MapPayloadToStokHareket(JsonElement el)
+        private static StokHareket? MapPayloadToStokHareket(JsonElement el)
         {
+            if (el.TryGetProperty("is_deleted", out var isDel) && (isDel.ValueKind == JsonValueKind.True || (isDel.ValueKind == JsonValueKind.Number && isDel.GetInt32() == 1)))
+                return null;
+
             var sh = new StokHareket();
             if (el.TryGetProperty("id", out var id)) sh.Id = ParseInt(id);
             if (el.TryGetProperty("stok_id", out var si)) sh.StokId = ParseInt(si);
@@ -623,18 +646,57 @@ namespace ErmayMuhasebe.Services
             return sh;
         }
 
-        private static Dictionary<string, object?> MapBankaToPayload(BankaKart b) => new()
+        private static Dictionary<string, object?> MapBankaToPayload(BankaKart b)
+        {
+            string? aciklama = null;
+            if (b.KartTuru == "Kasa")
+            {
+                aciklama = "[KASA]" + (string.IsNullOrWhiteSpace(b.Yetkili) ? "" : $"|{b.Yetkili}");
+            }
+            else if (!string.IsNullOrWhiteSpace(b.Yetkili))
+            {
+                aciklama = b.Yetkili;
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["id"] = b.Id.ToString(),
+                ["banka_adi"] = b.BankaAdi ?? "",
+                ["sube_adi"] = b.SubeAdi ?? "",
+                ["hesap_no"] = b.HesapNo ?? "",
+                ["iban"] = b.IBAN ?? "",
+                ["bakiye"] = b.Bakiye,
+                ["para_birimi"] = b.DovizTuru ?? "TRY",
+                ["aciklama"] = aciklama,
+                ["is_active"] = true,
+                ["is_deleted"] = b.IsDeleted
+            };
+        }
+
+        private static Dictionary<string, object?> MapKasaToPayload(BankaKart b) => new()
         {
             ["id"] = b.Id.ToString(),
-            ["banka_adi"] = b.BankaAdi ?? "",
-            ["sube_adi"] = b.SubeAdi ?? "",
-            ["hesap_no"] = b.HesapNo ?? "",
-            ["iban"] = b.IBAN ?? "",
+            ["kasa_kodu"] = b.HesapNo ?? $"KAS-{b.Id}",
+            ["kasa_adi"] = b.BankaAdi ?? "",
             ["bakiye"] = b.Bakiye,
             ["para_birimi"] = b.DovizTuru ?? "TRY",
+            ["aciklama"] = b.Yetkili ?? "",
             ["is_active"] = true,
             ["is_deleted"] = b.IsDeleted
         };
+
+        private static BankaKart MapPayloadToKasa(JsonElement el)
+        {
+            var b = new BankaKart { KartTuru = "Kasa" };
+            if (el.TryGetProperty("id", out var id)) b.Id = ParseInt(id);
+            if (el.TryGetProperty("kasa_adi", out var ka) && ka.ValueKind == JsonValueKind.String) b.BankaAdi = ka.GetString();
+            if (el.TryGetProperty("kasa_kodu", out var kk) && kk.ValueKind == JsonValueKind.String) b.HesapNo = kk.GetString();
+            if (el.TryGetProperty("bakiye", out var bq)) b.Bakiye = ParseDecimal(bq);
+            if (el.TryGetProperty("para_birimi", out var pb) && pb.ValueKind == JsonValueKind.String) b.DovizTuru = pb.GetString();
+            if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) b.Yetkili = ac.GetString();
+            if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) b.IsDeleted = true;
+            return b;
+        }
 
         private static BankaKart MapPayloadToBanka(JsonElement el)
         {
@@ -647,6 +709,26 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("bakiye", out var bq)) b.Bakiye = ParseDecimal(bq);
             if (el.TryGetProperty("para_birimi", out var pb) && pb.ValueKind == JsonValueKind.String) b.DovizTuru = pb.GetString();
             if (el.TryGetProperty("is_deleted", out var isDel) && isDel.ValueKind == JsonValueKind.True) b.IsDeleted = true;
+
+            if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String)
+            {
+                var acStr = ac.GetString() ?? "";
+                if (acStr.StartsWith("[KASA]"))
+                {
+                    b.KartTuru = "Kasa";
+                    var parts = acStr.Substring(6).Split('|');
+                    if (parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0])) b.Yetkili = parts[0];
+                }
+                else
+                {
+                    b.Yetkili = acStr;
+                    b.KartTuru = "Vadesiz";
+                }
+            }
+            else
+            {
+                b.KartTuru = "Vadesiz";
+            }
             return b;
         }
 
@@ -664,8 +746,11 @@ namespace ErmayMuhasebe.Services
             ["is_deleted"] = false
         };
 
-        private static BankaHareket MapPayloadToBankaHareket(JsonElement el)
+        private static BankaHareket? MapPayloadToBankaHareket(JsonElement el)
         {
+            if (el.TryGetProperty("is_deleted", out var isDel) && (isDel.ValueKind == JsonValueKind.True || (isDel.ValueKind == JsonValueKind.Number && isDel.GetInt32() == 1)))
+                return null;
+
             var bh = new BankaHareket();
             if (el.TryGetProperty("id", out var id)) bh.Id = ParseInt(id);
             if (el.TryGetProperty("banka_id", out var bi)) bh.BankaId = ParseInt(bi);
@@ -694,8 +779,11 @@ namespace ErmayMuhasebe.Services
             ["is_deleted"] = false
         };
 
-        private static KasaHareket MapPayloadToKasaHareket(JsonElement el)
+        private static KasaHareket? MapPayloadToKasaHareket(JsonElement el)
         {
+            if (el.TryGetProperty("is_deleted", out var isDel) && (isDel.ValueKind == JsonValueKind.True || (isDel.ValueKind == JsonValueKind.Number && isDel.GetInt32() == 1)))
+                return null;
+
             var kh = new KasaHareket();
             if (el.TryGetProperty("id", out var id)) kh.Id = ParseInt(id);
             if (el.TryGetProperty("kasa_id", out var ki)) kh.KasaId = ParseInt(ki);
@@ -777,7 +865,7 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteCariAsync(int id) => await DeleteAsync("cariler", id);
         public async Task<List<CariKart>?> PullCarilerAsync()
         {
-            using var doc = await GetJsonAsync("cariler");
+            using var doc = await GetJsonAsync("cariler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<CariKart>();
             foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToCari(el));
@@ -788,10 +876,14 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteCariHareketAsync(int id) => await DeleteAsync("cari_hareketler", id);
         public async Task<List<CariHareket>?> PullCariHareketlerAsync()
         {
-            using var doc = await GetJsonAsync("cari_hareketler");
+            using var doc = await GetJsonAsync("cari_hareketler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<CariHareket>();
-            foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToCariHareket(el));
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var h = MapPayloadToCariHareket(el);
+                if (h != null) list.Add(h);
+            }
             return list;
         }
 
@@ -850,7 +942,7 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteStokAsync(int id) => await DeleteAsync("stoklar", id);
         public async Task<List<StokKart>?> PullStoklarAsync()
         {
-            using var doc = await GetJsonAsync("stoklar");
+            using var doc = await GetJsonAsync("stoklar", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<StokKart>();
             foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToStok(el));
@@ -861,10 +953,14 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteStokHareketAsync(int id) => await DeleteAsync("stok_hareketler", id);
         public async Task<List<StokHareket>?> PullStokHareketlerAsync()
         {
-            using var doc = await GetJsonAsync("stok_hareketler");
+            using var doc = await GetJsonAsync("stok_hareketler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<StokHareket>();
-            foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToStokHareket(el));
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var sh = MapPayloadToStokHareket(el);
+                if (sh != null) list.Add(sh);
+            }
             return list;
         }
 
@@ -890,7 +986,7 @@ namespace ErmayMuhasebe.Services
         }
         public async Task<List<Fatura>?> PullFaturalarAsync()
         {
-            using var doc = await GetJsonAsync("faturalar");
+            using var doc = await GetJsonAsync("faturalar", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<Fatura>();
             foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToFatura(el));
@@ -940,7 +1036,7 @@ namespace ErmayMuhasebe.Services
         }
         public async Task<List<Siparis>?> PullSiparislerAsync()
         {
-            using var doc = await GetJsonAsync("siparisler");
+            using var doc = await GetJsonAsync("siparisler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<Siparis>();
             foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToSiparis(el));
@@ -1009,7 +1105,7 @@ namespace ErmayMuhasebe.Services
         }
         public async Task<List<Teklif>?> PullTekliflerAsync()
         {
-            using var doc = await GetJsonAsync("teklifler");
+            using var doc = await GetJsonAsync("teklifler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<Teklif>();
             foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToTeklif(el));
@@ -1077,21 +1173,89 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteKasaHareketAsync(int id) => await DeleteAsync("kasa_hareketler", id);
         public async Task<List<KasaHareket>?> PullKasaHareketlerAsync()
         {
-            using var doc = await GetJsonAsync("kasa_hareketler");
+            using var doc = await GetJsonAsync("kasa_hareketler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<KasaHareket>();
-            foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToKasaHareket(el));
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var kh = MapPayloadToKasaHareket(el);
+                if (kh != null) list.Add(kh);
+            }
             return list;
         }
 
-        public async Task SyncBankaAsync(BankaKart banka) => await UpsertPayloadAsync("bankalar", MapBankaToPayload(banka));
-        public async Task DeleteBankaAsync(int id) => await DeleteAsync("bankalar", id);
+        public async Task SyncBankaAsync(BankaKart banka)
+        {
+            await UpsertPayloadAsync("bankalar", MapBankaToPayload(banka));
+            if (banka.KartTuru == "Kasa")
+            {
+                await UpsertPayloadAsync("kasalar", MapKasaToPayload(banka));
+            }
+        }
+
+        public async Task DeleteBankaAsync(int id)
+        {
+            await DeleteAsync("bankalar", id);
+            await DeleteAsync("kasalar", id);
+        }
+
         public async Task<List<BankaKart>?> PullBankalarAsync()
         {
-            using var doc = await GetJsonAsync("bankalar");
-            if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<BankaKart>();
-            foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToBanka(el));
+            var seenIds = new HashSet<int>();
+
+            // 1. Pull from kasalar table
+            try
+            {
+                using var docKasa = await GetJsonAsync("kasalar", "or=(is_deleted.is.null,is_deleted.eq.false)");
+                if (docKasa != null && docKasa.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in docKasa.RootElement.EnumerateArray())
+                    {
+                        var k = MapPayloadToKasa(el);
+                        if (k.Id > 0)
+                        {
+                            list.Add(k);
+                            seenIds.Add(k.Id);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PullBankalarAsync] Error pulling kasalar: {ex.Message}");
+            }
+
+            // 2. Pull from bankalar table
+            try
+            {
+                using var doc = await GetJsonAsync("bankalar", "or=(is_deleted.is.null,is_deleted.eq.false)");
+                if (doc != null && doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        var b = MapPayloadToBanka(el);
+                        if (seenIds.Contains(b.Id))
+                        {
+                            var existing = list.FirstOrDefault(x => x.Id == b.Id);
+                            if (existing != null && existing.KartTuru != "Kasa" && b.KartTuru == "Kasa")
+                            {
+                                existing.KartTuru = "Kasa";
+                            }
+                        }
+                        else
+                        {
+                            list.Add(b);
+                            seenIds.Add(b.Id);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PullBankalarAsync] Error pulling bankalar: {ex.Message}");
+            }
+
             return list;
         }
 
@@ -1099,10 +1263,14 @@ namespace ErmayMuhasebe.Services
         public async Task DeleteBankaHareketAsync(int id) => await DeleteAsync("banka_hareketler", id);
         public async Task<List<BankaHareket>?> PullBankaHareketlerAsync()
         {
-            using var doc = await GetJsonAsync("banka_hareketler");
+            using var doc = await GetJsonAsync("banka_hareketler", "or=(is_deleted.is.null,is_deleted.eq.false)");
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return null;
             var list = new List<BankaHareket>();
-            foreach (var el in doc.RootElement.EnumerateArray()) list.Add(MapPayloadToBankaHareket(el));
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var bh = MapPayloadToBankaHareket(el);
+                if (bh != null) list.Add(bh);
+            }
             return list;
         }
 
@@ -1586,6 +1754,12 @@ namespace ErmayMuhasebe.Services
                 {
                     var payloads = bankalar.Select(MapBankaToPayload).ToList<object>();
                     await UpsertBatchPayloadAsync("bankalar", payloads);
+
+                    var kasalar = bankalar.Where(b => b.KartTuru == "Kasa").Select(MapKasaToPayload).ToList<object>();
+                    if (kasalar.Any())
+                    {
+                        await UpsertBatchPayloadAsync("kasalar", kasalar);
+                    }
                 }
                 if (kasaHareketler?.Any() == true)
                 {
