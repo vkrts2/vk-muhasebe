@@ -1,7 +1,7 @@
 # VK Muhasebe - Otomatik iOS IPA Indirme Scripti
 $ErrorActionPreference = "Stop"
 
-$repo = "vkrts02-cell/vk-muhasebe"
+$repo = "vkrts2/vk-muhasebe"
 $desktopPaths = @(
     "C:\Users\mazik\Desktop\VK.ipa",
     "C:\Users\mazik\OneDrive\Masaüstü\VK.ipa"
