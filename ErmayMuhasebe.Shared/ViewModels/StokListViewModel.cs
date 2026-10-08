@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Linq.Expressions;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -173,43 +174,21 @@ public abstract partial class StokListViewModel : ViewModelBase
 
             await InvokeOnUIThreadAsync(() => 
             {
-                if (isSilent && Stoklar != null && Stoklar.Count > 0 && Stoklar.Count == pagedList.Count)
+                if (Stoklar == null) Stoklar = new ObservableCollection<StokKart>();
+                Stoklar.SyncWith(pagedList, s => s.Id, (target, src) =>
                 {
-                    bool sameIds = true;
-                    for (int i = 0; i < pagedList.Count; i++)
-                    {
-                        if (Stoklar[i].Id != pagedList[i].Id)
-                        {
-                            sameIds = false;
-                            break;
-                        }
-                    }
-
-                    if (sameIds)
-                    {
-                        for (int i = 0; i < pagedList.Count; i++)
-                        {
-                            var target = Stoklar[i];
-                            var src = pagedList[i];
-                            if (target.Miktar != src.Miktar) target.Miktar = src.Miktar;
-                            if (target.OrtalamaAlisFiyati != src.OrtalamaAlisFiyati) target.OrtalamaAlisFiyati = src.OrtalamaAlisFiyati;
-                            if (target.OrtalamaSatisFiyati != src.OrtalamaSatisFiyati) target.OrtalamaSatisFiyati = src.OrtalamaSatisFiyati;
-                            if (target.AlisFiyati != src.AlisFiyati) target.AlisFiyati = src.AlisFiyati;
-                            if (target.SatisFiyati != src.SatisFiyati) target.SatisFiyati = src.SatisFiyati;
-                            if (target.StokAdi != src.StokAdi) target.StokAdi = src.StokAdi;
-                            if (target.StokKodu != src.StokKodu) target.StokKodu = src.StokKodu;
-                            if (target.Kategori != src.Kategori) target.Kategori = src.Kategori;
-                        }
-                    }
-                    else
-                    {
-                        Stoklar = new ObservableCollection<StokKart>(pagedList);
-                    }
-                }
-                else
-                {
-                    Stoklar = new ObservableCollection<StokKart>(pagedList);
-                }
+                    if (target.Miktar != src.Miktar) target.Miktar = src.Miktar;
+                    if (target.OrtalamaAlisFiyati != src.OrtalamaAlisFiyati) target.OrtalamaAlisFiyati = src.OrtalamaAlisFiyati;
+                    if (target.OrtalamaSatisFiyati != src.OrtalamaSatisFiyati) target.OrtalamaSatisFiyati = src.OrtalamaSatisFiyati;
+                    if (target.AlisFiyati != src.AlisFiyati) target.AlisFiyati = src.AlisFiyati;
+                    if (target.SatisFiyati != src.SatisFiyati) target.SatisFiyati = src.SatisFiyati;
+                    if (target.StokAdi != src.StokAdi) target.StokAdi = src.StokAdi;
+                    if (target.StokKodu != src.StokKodu) target.StokKodu = src.StokKodu;
+                    if (target.Kategori != src.Kategori) target.Kategori = src.Kategori;
+                    if (target.Barkod != src.Barkod) target.Barkod = src.Barkod;
+                    if (target.Birim != src.Birim) target.Birim = src.Birim;
+                    if (target.KDV != src.KDV) target.KDV = src.KDV;
+                });
                 
                 var currentSelected = EditKategori;
                 GroupList.Clear();
@@ -229,7 +208,11 @@ public abstract partial class StokListViewModel : ViewModelBase
 
                 if (targetSelectId.HasValue) 
                 {
-                    SelectedStok = Stoklar.FirstOrDefault(x => x.Id == targetSelectId.Value);
+                    var found = Stoklar.FirstOrDefault(x => x.Id == targetSelectId.Value);
+                    if (found != null && SelectedStok != found)
+                    {
+                        SelectedStok = found;
+                    }
                 }
             });
         }
@@ -346,7 +329,25 @@ public abstract partial class StokListViewModel : ViewModelBase
             var sorted = chronological.OrderByDescending(h => h.Tarih).ThenByDescending(h => h.Id).ToList();
             await InvokeOnUIThreadAsync(() => 
             {
-                StokHareketleri = new ObservableCollection<StokHareket>(sorted);
+                var curSelectedHareketId = SelectedStokHareket?.Id;
+                if (StokHareketleri == null) StokHareketleri = new ObservableCollection<StokHareket>();
+                StokHareketleri.SyncWith(sorted, h => h.Id, (target, src) =>
+                {
+                    target.Tarih = src.Tarih;
+                    target.IslemTuru = src.IslemTuru;
+                    target.EvrakNo = src.EvrakNo;
+                    target.Aciklama = src.Aciklama;
+                    target.Giren = src.Giren;
+                    target.Cikan = src.Cikan;
+                    target.Miktar = src.Miktar;
+                    target.Fiyat = src.Fiyat;
+                    target.KalanMiktar = src.KalanMiktar;
+                });
+                if (curSelectedHareketId.HasValue)
+                {
+                    var found = StokHareketleri.FirstOrDefault(x => x.Id == curSelectedHareketId.Value);
+                    if (found != null) SelectedStokHareket = found;
+                }
             });
         }
         catch (Exception ex) { ErrorMessage = ex.Message; }

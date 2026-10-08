@@ -14,8 +14,10 @@ public partial class EFTListViewModel : ErmayMuhasebe.Shared.ViewModels.EFTListV
 {
     public EFTListViewModel(IUnitOfWork uow, IPdfService pdfService) : base(uow, pdfService)
     {
-        // Listen for financial changes
-        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => _ = LoadIslemlerAsync());
+        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => 
+        {
+            if (!IsEditDialogVisible && !IsCariSecimVisible) _ = LoadIslemlerAsync();
+        });
     }
 
     protected override async Task InvokeOnUIThreadAsync(Action action)

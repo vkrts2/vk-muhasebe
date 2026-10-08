@@ -6,6 +6,7 @@ import { generateInt32Id } from '../utils/IdGenerator';
 import {
   KeyboardDoneAccessory,
   KEYBOARD_ACCESSORY_ID,
+  KeyboardDismissBar,
 } from '../components/KeyboardDoneAccessory';
 
 export default function StokSayimScreen() {
@@ -227,6 +228,7 @@ export default function StokSayimScreen() {
                 <Text style={styles.saveText}>Fişi Kaydet</Text>
               </TouchableOpacity>
             </View>
+            <KeyboardDismissBar inModal={true} />
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>

@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -63,7 +64,28 @@ public abstract partial class BankaListViewModel : ViewModelBase
 
             await InvokeOnUIThreadAsync(() => 
             {
-                Bankalar = new ObservableCollection<BankaKart>(filtered);
+                var selectedId = SelectedBanka?.Id;
+                Bankalar.SyncWith(filtered, b => b.Id, (target, src) =>
+                {
+                    if (target.BankaAdi != src.BankaAdi) target.BankaAdi = src.BankaAdi;
+                    if (target.SubeKodu != src.SubeKodu) target.SubeKodu = src.SubeKodu;
+                    if (target.HesapNo != src.HesapNo) target.HesapNo = src.HesapNo;
+                    if (target.IBAN != src.IBAN) target.IBAN = src.IBAN;
+                    if (target.Yetkili != src.Yetkili) target.Yetkili = src.Yetkili;
+                    if (target.DovizTuru != src.DovizTuru) target.DovizTuru = src.DovizTuru;
+                    if (target.GuncelBakiye != src.GuncelBakiye) target.GuncelBakiye = src.GuncelBakiye;
+                    if (target.Bakiye != src.Bakiye) target.Bakiye = src.Bakiye;
+                    if (target.AcilisBakiyesi != src.AcilisBakiyesi) target.AcilisBakiyesi = src.AcilisBakiyesi;
+                });
+
+                if (selectedId.HasValue)
+                {
+                    var reselected = Bankalar.FirstOrDefault(b => b.Id == selectedId.Value);
+                    if (reselected != null && SelectedBanka != reselected)
+                    {
+                        SelectedBanka = reselected;
+                    }
+                }
             });
         }
         catch (Exception ex)

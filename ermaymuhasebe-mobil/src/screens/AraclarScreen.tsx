@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Modal, Share, Image } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Modal, Share, Image, Keyboard } from 'react-native';
 import { Wrench, TrendingUp, Landmark, Target, RefreshCw, Save, Users, Layers, Search, X, Activity, Percent, AlertTriangle, Briefcase, Plus, Phone, Trash2, Edit3, Share2, Paperclip, Clock, FileText, Lock, Palette, Folder, ArrowLeft, ChevronDown, ChevronUp, Sparkles } from 'lucide-react-native';
 import { subscribeToPath, writeData, deleteData, readData } from '../services/firebase';
 import { generateInt32Id } from '../utils/IdGenerator';
@@ -11,6 +11,7 @@ import MusteriLimitScreen from './MusteriLimitScreen';
 import {
   KeyboardDoneAccessory,
   KEYBOARD_ACCESSORY_ID,
+  KeyboardDismissBar,
 } from '../components/KeyboardDoneAccessory';
 
 const formatMoney = (val: number) => {
@@ -1179,6 +1180,7 @@ export default function AraclarScreen() {
                       {hedefLoader ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnText}>Dağıtımı Başlat ve Kaydet</Text>}
                     </TouchableOpacity>
                   </View>
+                  <KeyboardDismissBar inModal={true} />
                 </View>
               </Modal>
             </View>
@@ -1494,7 +1496,15 @@ export default function AraclarScreen() {
           </View>
           <View style={[styles.searchBox, { marginBottom: 16 }]}>
             <Search color="#64748B" size={20} />
-            <TextInput style={styles.searchInput} placeholder="Cari ara..." placeholderTextColor="#64748B" value={cariSearch} onChangeText={setCariSearch} />
+            <TextInput 
+              style={styles.searchInput} 
+              placeholder="Cari ara..." 
+              placeholderTextColor="#64748B" 
+              value={cariSearch} 
+              onChangeText={setCariSearch} 
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
+            />
           </View>
           <FlatList initialNumToRender={20} maxToRenderPerBatch={20} windowSize={5} 
             data={cariler.filter(c => (c.unvan || '').toLocaleLowerCase('tr-TR').includes(cariSearch.toLocaleLowerCase('tr-TR')))}
@@ -1577,6 +1587,7 @@ export default function AraclarScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
 
@@ -1614,6 +1625,7 @@ export default function AraclarScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
       <KeyboardDoneAccessory />

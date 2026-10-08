@@ -16,6 +16,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
 } from 'react-native';
+import { KeyboardDismissBar } from '../components/KeyboardDismissBar';
 import {
   Folder,
   Search,
@@ -313,10 +314,14 @@ export default function MusteriTakipScreen({ navigation }: any) {
               value={searchString}
               onChangeText={setSearchString}
               returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
             {searchString.length > 0 && (
               <TouchableOpacity
-                onPress={() => setSearchString('')}
+                onPress={() => {
+                  setSearchString('');
+                  Keyboard.dismiss();
+                }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <X color="#94A3B8" size={16} />
@@ -640,6 +645,7 @@ export default function MusteriTakipScreen({ navigation }: any) {
               )}
             />
           </SafeAreaView>
+          <KeyboardDismissBar inModal={true} />
         </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>

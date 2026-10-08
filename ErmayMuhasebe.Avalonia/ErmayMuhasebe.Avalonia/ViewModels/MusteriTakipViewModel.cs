@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Avalonia.ViewModels
 {
@@ -75,7 +76,11 @@ namespace ErmayMuhasebe.Avalonia.ViewModels
         {
             _uow = uow;
             _pdfService = pdfService;
-            WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => _ = LoadKlasorlerAsync());
+            WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => 
+            {
+                if (IsCariSelectionOpen || IsInFolderDetail) return;
+                _ = LoadKlasorlerAsync();
+            });
             _ = LoadKlasorlerAsync();
         }
 
@@ -134,7 +139,16 @@ namespace ErmayMuhasebe.Avalonia.ViewModels
 
                 await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Klasorler = cardList;
+                    if (Klasorler == null) Klasorler = new ObservableCollection<MusteriTakipKlasorCardViewModel>();
+                    Klasorler.SyncWith(cardList, c => c.Id, (target, src) =>
+                    {
+                        target.GorselSayisi = src.GorselSayisi;
+                        target.NotSayisi = src.NotSayisi;
+                        target.GorusmeSayisi = src.GorusmeSayisi;
+                        target.FiyatSayisi = src.FiyatSayisi;
+                        target.SonVerilenFiyat = src.SonVerilenFiyat;
+                        target.SonVerilenFiyatBirimi = src.SonVerilenFiyatBirimi;
+                    });
                     FilterKlasorler();
                 });
             }
@@ -165,7 +179,17 @@ namespace ErmayMuhasebe.Avalonia.ViewModels
                 query = query.Where(x => x.Etiket == SelectedEtiketFilter);
             }
 
-            FilteredKlasorler = new ObservableCollection<MusteriTakipKlasorCardViewModel>(query);
+            var filtered = query.ToList();
+            if (FilteredKlasorler == null) FilteredKlasorler = new ObservableCollection<MusteriTakipKlasorCardViewModel>();
+            FilteredKlasorler.SyncWith(filtered, c => c.Id, (target, src) =>
+            {
+                target.GorselSayisi = src.GorselSayisi;
+                target.NotSayisi = src.NotSayisi;
+                target.GorusmeSayisi = src.GorusmeSayisi;
+                target.FiyatSayisi = src.FiyatSayisi;
+                target.SonVerilenFiyat = src.SonVerilenFiyat;
+                target.SonVerilenFiyatBirimi = src.SonVerilenFiyatBirimi;
+            });
             HasKlasorler = FilteredKlasorler.Count > 0;
         }
 

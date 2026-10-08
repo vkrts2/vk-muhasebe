@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Keyboard } from 'react-native';
 import { Search, Plus, X, Save, Trash2, Calendar, User, Clock, AlertCircle, LayoutGrid, CheckCircle2 } from 'lucide-react-native';
 import { subscribeToPath, writeData, deleteData } from '../services/firebase';
 import { generateInt32Id } from '../utils/IdGenerator';
+import { KeyboardDismissBar } from '../components/KeyboardDismissBar';
 
 export interface Gorev {
   id: number;
@@ -231,7 +232,14 @@ export default function KanbanScreen() {
             placeholderTextColor="#64748B"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => { setSearchQuery(''); Keyboard.dismiss(); }}>
+              <X color="#94A3B8" size={18} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -359,6 +367,7 @@ export default function KanbanScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
 

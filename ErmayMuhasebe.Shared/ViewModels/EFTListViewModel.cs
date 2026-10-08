@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -89,7 +90,32 @@ public abstract partial class EFTListViewModel : ViewModelBase
                                              (x.DekontNo ?? "").Contains(FilterText, StringComparison.OrdinalIgnoreCase));
             }
 
-            Islemler = new ObservableCollection<EftIslem>(filtered.OrderByDescending(x => x.Tarih));
+            var ordered = filtered.OrderByDescending(x => x.Tarih).ToList();
+            var selectedId = SelectedIslem?.Id;
+
+            Islemler.SyncWith(ordered, x => x.Id, (target, src) =>
+            {
+                if (target.Tarih != src.Tarih) target.Tarih = src.Tarih;
+                if (target.Tutar != src.Tutar) target.Tutar = src.Tutar;
+                if (target.Banka != src.Banka) target.Banka = src.Banka;
+                if (target.HesapNo != src.HesapNo) target.HesapNo = src.HesapNo;
+                if (target.DekontNo != src.DekontNo) target.DekontNo = src.DekontNo;
+                if (target.Durum != src.Durum) target.Durum = src.Durum;
+                if (target.Aciklama != src.Aciklama) target.Aciklama = src.Aciklama;
+                if (target.MusteriId != src.MusteriId) target.MusteriId = src.MusteriId;
+                if (target.MusteriUnvan != src.MusteriUnvan) target.MusteriUnvan = src.MusteriUnvan;
+                if (target.YonlendirilenCariId != src.YonlendirilenCariId) target.YonlendirilenCariId = src.YonlendirilenCariId;
+                if (target.YonlendirilenCariUnvan != src.YonlendirilenCariUnvan) target.YonlendirilenCariUnvan = src.YonlendirilenCariUnvan;
+            });
+
+            if (selectedId.HasValue)
+            {
+                var reselected = Islemler.FirstOrDefault(x => x.Id == selectedId.Value);
+                if (reselected != null && SelectedIslem != reselected)
+                {
+                    SelectedIslem = reselected;
+                }
+            }
         });
     }
 

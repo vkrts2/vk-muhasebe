@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Linq.Expressions;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -312,47 +313,21 @@ public abstract partial class CariListViewModel : ViewModelBase
             
             await InvokeOnUIThreadAsync(() => 
             {
-                // In-place update if silent reload to avoid resetting DataGrid and jumping to top
-                if (isSilent && Cariler != null && Cariler.Count > 0 && Cariler.Count == pagedList.Count)
+                // In-place update to avoid resetting DataGrid, closing flyouts, and losing focus/selection
+                Cariler.SyncWith(pagedList, c => c.Id, (target, src) =>
                 {
-                    bool sameIds = true;
-                    for (int i = 0; i < pagedList.Count; i++)
-                    {
-                        if (Cariler[i].Id != pagedList[i].Id)
-                        {
-                            sameIds = false;
-                            break;
-                        }
-                    }
-
-                    if (sameIds)
-                    {
-                        for (int i = 0; i < pagedList.Count; i++)
-                        {
-                            var target = Cariler[i];
-                            var src = pagedList[i];
-                            if (target.Borc != src.Borc) target.Borc = src.Borc;
-                            if (target.Alacak != src.Alacak) target.Alacak = src.Alacak;
-                            if (target.Unvan != src.Unvan) target.Unvan = src.Unvan;
-                            if (target.CariKod != src.CariKod) target.CariKod = src.CariKod;
-                            if (target.Telefon != src.Telefon) target.Telefon = src.Telefon;
-                            if (target.CepTelefon != src.CepTelefon) target.CepTelefon = src.CepTelefon;
-                            if (target.Grup != src.Grup) target.Grup = src.Grup;
-                            if (target.Il != src.Il) target.Il = src.Il;
-                            if (target.Ilce != src.Ilce) target.Ilce = src.Ilce;
-                            if (target.VergiNo != src.VergiNo) target.VergiNo = src.VergiNo;
-                            if (target.VergiDairesi != src.VergiDairesi) target.VergiDairesi = src.VergiDairesi;
-                        }
-                    }
-                    else
-                    {
-                        Cariler = new ObservableCollection<CariKart>(pagedList);
-                    }
-                }
-                else
-                {
-                    Cariler = new ObservableCollection<CariKart>(pagedList);
-                }
+                    if (target.Borc != src.Borc) target.Borc = src.Borc;
+                    if (target.Alacak != src.Alacak) target.Alacak = src.Alacak;
+                    if (target.Unvan != src.Unvan) target.Unvan = src.Unvan;
+                    if (target.CariKod != src.CariKod) target.CariKod = src.CariKod;
+                    if (target.Telefon != src.Telefon) target.Telefon = src.Telefon;
+                    if (target.CepTelefon != src.CepTelefon) target.CepTelefon = src.CepTelefon;
+                    if (target.Grup != src.Grup) target.Grup = src.Grup;
+                    if (target.Il != src.Il) target.Il = src.Il;
+                    if (target.Ilce != src.Ilce) target.Ilce = src.Ilce;
+                    if (target.VergiNo != src.VergiNo) target.VergiNo = src.VergiNo;
+                    if (target.VergiDairesi != src.VergiDairesi) target.VergiDairesi = src.VergiDairesi;
+                });
                 
                 // Pager logic
                 int totalPages = (int)Math.Ceiling((double)TotalCount / PageSize);
@@ -370,7 +345,11 @@ public abstract partial class CariListViewModel : ViewModelBase
 
                 if (selectedId.HasValue)
                 {
-                    SelectedCari = Cariler.FirstOrDefault(c => c.Id == selectedId.Value);
+                    var reselected = Cariler.FirstOrDefault(c => c.Id == selectedId.Value);
+                    if (reselected != null && SelectedCari != reselected)
+                    {
+                        SelectedCari = reselected;
+                    }
                 }
             });
         }
@@ -410,9 +389,30 @@ public abstract partial class CariListViewModel : ViewModelBase
             h.KalanBakiye = balance;
         }
 
+        var displayList = sorted.OrderByDescending(h => h.Tarih).ThenByDescending(h => h.Id).ToList();
+
         await InvokeOnUIThreadAsync(() => 
         {
-            CariHareketler = new ObservableCollection<CariHareket>(sorted.OrderByDescending(h => h.Tarih).ThenByDescending(h => h.Id));
+            var selectedHareketId = SelectedHareket?.Id;
+            CariHareketler.SyncWith(displayList, h => h.Id, (target, src) =>
+            {
+                if (target.Tarih != src.Tarih) target.Tarih = src.Tarih;
+                if (target.IslemTuru != src.IslemTuru) target.IslemTuru = src.IslemTuru;
+                if (target.EvrakNo != src.EvrakNo) target.EvrakNo = src.EvrakNo;
+                if (target.Aciklama != src.Aciklama) target.Aciklama = src.Aciklama;
+                if (target.Borc != src.Borc) target.Borc = src.Borc;
+                if (target.Alacak != src.Alacak) target.Alacak = src.Alacak;
+                if (target.KalanBakiye != src.KalanBakiye) target.KalanBakiye = src.KalanBakiye;
+            });
+
+            if (selectedHareketId.HasValue)
+            {
+                var reselected = CariHareketler.FirstOrDefault(h => h.Id == selectedHareketId.Value);
+                if (reselected != null && SelectedHareket != reselected)
+                {
+                    SelectedHareket = reselected;
+                }
+            }
         });
     }
 

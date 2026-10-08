@@ -41,6 +41,7 @@ import FadeInView from "../components/FadeInView";
 import {
   KeyboardDoneAccessory,
   KEYBOARD_ACCESSORY_ID,
+  KeyboardDismissBar,
 } from "../components/KeyboardDoneAccessory";
 import { generateInt32Id } from "../utils/IdGenerator";
 import Svg, { Path, Line, Text as SvgText } from "react-native-svg";
@@ -213,6 +214,7 @@ function SwipeableModal({
         >
           {children}
         </Animated.View>
+        <KeyboardDismissBar inModal={true} />
       </SafeAreaView>
     </Modal>
   );

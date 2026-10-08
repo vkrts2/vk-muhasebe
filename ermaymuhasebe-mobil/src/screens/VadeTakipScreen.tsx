@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Image } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Image, Keyboard } from 'react-native';
 import { Search, CalendarDays, Plus, X, Save, Edit3, Trash2, Calendar, User, Clock, AlertTriangle, CheckCircle2, Users, RefreshCw, Camera, ChevronDown, Download, Printer } from 'lucide-react-native';
 import { generateInt32Id } from '../utils/IdGenerator';
 import { subscribeToPath, writeData, mapAppToDatabase } from '../services/firebase';
 import {
   KeyboardDoneAccessory,
   KEYBOARD_ACCESSORY_ID,
+  KeyboardDismissBar,
 } from '../components/KeyboardDoneAccessory';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -154,12 +155,112 @@ export default function VadeTakipScreen() {
     return `${days} Gün Kaldı`;
   };
 
+  // FIFO Eşleştirme (Masaüstü _matchInvoicePaymentsInternal ile tam uyumlu)
+  const getMatchedFaturalar = () => {
+    if (!faturalar || faturalar.length === 0) return [];
+    if (!cariHareketler || cariHareketler.length === 0) return faturalar;
+
+    const movementsByCari: Record<string | number, any[]> = {};
+    cariHareketler.forEach(h => {
+      if (h.isDeleted) return;
+      const cId = h.cariId;
+      if (!cId) return;
+      if (!movementsByCari[cId]) movementsByCari[cId] = [];
+      movementsByCari[cId].push(h);
+    });
+
+    const faturalarByCari: Record<string | number, any[]> = {};
+    faturalar.forEach(f => {
+      if (f.isDeleted) return;
+      const cId = f.cariId;
+      if (!cId) return;
+      if (!faturalarByCari[cId]) faturalarByCari[cId] = [];
+      faturalarByCari[cId].push(f);
+    });
+
+    const matchedMap: Record<string | number, { odenen: number; kalan: number }> = {};
+
+    Object.keys(faturalarByCari).forEach(cId => {
+      const cMoves = movementsByCari[cId] || [];
+      const cFtrs = faturalarByCari[cId];
+
+      const totalCollection = cMoves
+        .filter(h => {
+          const tur = h.islemTuru || '';
+          const alacak = Number(h.alacak) || 0;
+          return alacak > 0 && (tur.includes('Tahsilat') || tur.includes('Alacak Dekontu') || tur === 'Açılış' || tur === 'Acilis' || tur === 'İade' || tur === 'Iade');
+        })
+        .reduce((sum, h) => sum + (Number(h.alacak) || 0), 0);
+
+      const totalPayment = cMoves
+        .filter(h => {
+          const tur = h.islemTuru || '';
+          const borc = Number(h.borc) || 0;
+          return borc > 0 && (tur.includes('Ödeme') || tur.includes('Odeme') || tur.includes('Borç Dekontu') || tur.includes('Borc Dekontu') || tur === 'Açılış' || tur === 'Acilis' || tur === 'İade' || tur === 'Iade');
+        })
+        .reduce((sum, h) => sum + (Number(h.borc) || 0), 0);
+
+      const satisFaturalari = cFtrs
+        .filter(f => f.tur === 'Satış' || f.tur === 'Satis')
+        .sort((a, b) => (String(a.tarih || '')).localeCompare(String(b.tarih || '')) || (Number(a.id) - Number(b.id)));
+
+      let remCollection = totalCollection;
+      satisFaturalari.forEach(f => {
+        const gt = Number(f.genelToplam) || 0;
+        let odenen = 0;
+        if (remCollection > 0) {
+          if (remCollection >= gt) {
+            odenen = gt;
+            remCollection -= gt;
+          } else {
+            odenen = remCollection;
+            remCollection = 0;
+          }
+        }
+        matchedMap[f.id] = { odenen, kalan: gt - odenen };
+      });
+
+      const alisFaturalari = cFtrs
+        .filter(f => f.tur === 'Alış' || f.tur === 'Alis')
+        .sort((a, b) => (String(a.tarih || '')).localeCompare(String(b.tarih || '')) || (Number(a.id) - Number(b.id)));
+
+      let remPayment = totalPayment;
+      alisFaturalari.forEach(f => {
+        const gt = Number(f.genelToplam) || 0;
+        let odenen = 0;
+        if (remPayment > 0) {
+          if (remPayment >= gt) {
+            odenen = gt;
+            remPayment -= gt;
+          } else {
+            odenen = remPayment;
+            remPayment = 0;
+          }
+        }
+        matchedMap[f.id] = { odenen, kalan: gt - odenen };
+      });
+    });
+
+    return faturalar.map(f => {
+      const match = matchedMap[f.id];
+      if (match) {
+        return {
+          ...f,
+          odenen: match.odenen,
+          kalan: match.kalan
+        };
+      }
+      return f;
+    });
+  };
+
   const getVadeItems = () => {
     const items: any[] = [];
 
-    // Faturalar
-    faturalar.forEach(f => {
-      const kalan = (f.genelToplam || 0) - (f.odenen || 0);
+    // Faturalar (FIFO eşleştirilmiş kalan tutarlarla)
+    const activeFaturalar = getMatchedFaturalar();
+    activeFaturalar.forEach(f => {
+      const kalan = f.kalan !== undefined ? f.kalan : ((f.genelToplam || 0) - (f.odenen || 0));
       if (kalan > 0) {
         const isIncoming = f.tur === 'Satış' || f.tur === 'Satis';
         items.push({
@@ -287,8 +388,9 @@ export default function VadeTakipScreen() {
     let borc = 0;
     let gecikmis = 0;
 
-    faturalar.forEach(f => {
-      const kalan = (f.genelToplam || 0) - (f.odenen || 0);
+    const activeFaturalar = getMatchedFaturalar();
+    activeFaturalar.forEach(f => {
+      const kalan = f.kalan !== undefined ? f.kalan : ((f.genelToplam || 0) - (f.odenen || 0));
       if (kalan > 0) {
         const isIncoming = f.tur === 'Satış' || f.tur === 'Satis';
         if (isIncoming) alacak += kalan;
@@ -604,7 +706,14 @@ export default function VadeTakipScreen() {
               placeholderTextColor="#64748B"
               value={searchQuery}
               onChangeText={setSearchQuery}
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => { setSearchQuery(''); Keyboard.dismiss(); }}>
+                <X color="#94A3B8" size={18} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
         
@@ -757,7 +866,15 @@ export default function VadeTakipScreen() {
                 </View>
                 <View style={[styles.searchBox, { marginBottom: 16 }]}>
                   <Search color="#64748B" size={20} />
-                  <TextInput style={styles.searchInput} placeholder="Cari ara..." placeholderTextColor="#64748B" value={cariSearch} onChangeText={setCariSearch} />
+                  <TextInput 
+                    style={styles.searchInput} 
+                    placeholder="Cari ara..." 
+                    placeholderTextColor="#64748B" 
+                    value={cariSearch} 
+                    onChangeText={setCariSearch} 
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                  />
                 </View>
                 <FlatList initialNumToRender={20} maxToRenderPerBatch={20} windowSize={5} 
                   data={cariler.filter(c => (c.unvan || '').toLocaleLowerCase('tr-TR').includes(cariSearch.toLocaleLowerCase('tr-TR')))}
@@ -772,6 +889,7 @@ export default function VadeTakipScreen() {
               </View>
             )}
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
 

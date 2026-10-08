@@ -1040,6 +1040,8 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
     const vergiDairesi = row.vergi_dairesi || row.vergiDairesi || r.vergiDairesi || '';
     const vergiNo = row.vergi_no || row.vergiNo || r.vergiNo || '';
     const adres = row.adres || r.adres || '';
+    const odenen = Number(row.odenen ?? row.odenen_tutar ?? r.odenen) || 0;
+    const kalan = Number(row.kalan ?? row.kalan_tutar ?? r.kalan) || (genelToplam - odenen);
 
     return {
       ...r,
@@ -1050,6 +1052,8 @@ export const normalizeRowFromSupabase = (table: string, row: any): any => {
       kdvToplam,
       toplamKdv: kdvToplam,
       genelToplam,
+      odenen,
+      kalan,
       cariId,
       cariUnvan,
       tarih,

@@ -683,6 +683,8 @@ namespace ErmayMuhasebe.Services
             if (el.TryGetProperty("ara_toplam", out var at)) f.AraToplam = ParseDecimal(at);
             if (el.TryGetProperty("kdv_toplam", out var kt)) f.KdvToplam = ParseDecimal(kt);
             if (el.TryGetProperty("genel_toplam", out var gt)) f.GenelToplam = ParseDecimal(gt);
+            if (el.TryGetProperty("odenen", out var od)) f.Odenen = ParseDecimal(od);
+            else if (el.TryGetProperty("odenen_tutar", out var odt)) f.Odenen = ParseDecimal(odt);
             if (el.TryGetProperty("aciklama", out var ac) && ac.ValueKind == JsonValueKind.String) f.Aciklama = ac.GetString();
             if (el.TryGetProperty("doviz_turu", out var dt) && dt.ValueKind == JsonValueKind.String) f.DovizTuru = dt.GetString();
             if (el.TryGetProperty("doviz_kuru", out var dk)) f.DovizKuru = ParseDecimal(dk);

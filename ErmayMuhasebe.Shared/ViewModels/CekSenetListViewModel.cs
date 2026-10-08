@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System;
 using CommunityToolkit.Mvvm.Messaging;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -117,7 +118,36 @@ public abstract partial class CekSenetListViewModel : ViewModelBase
                                              (x.Banka ?? "").Contains(FilterText, StringComparison.OrdinalIgnoreCase));
             }
 
-            Cekler = new ObservableCollection<Cek>(filtered.OrderByDescending(x => x.VadeTarihi));
+            var orderedList = filtered.OrderByDescending(x => x.VadeTarihi).ToList();
+            var selectedId = SelectedCek?.Id;
+
+            Cekler.SyncWith(orderedList, c => c.Id, (target, src) =>
+            {
+                if (target.PortfoyNo != src.PortfoyNo) target.PortfoyNo = src.PortfoyNo;
+                if (target.AsilBorclu != src.AsilBorclu) target.AsilBorclu = src.AsilBorclu;
+                if (target.VadeTarihi != src.VadeTarihi) target.VadeTarihi = src.VadeTarihi;
+                if (target.IslemTarihi != src.IslemTarihi) target.IslemTarihi = src.IslemTarihi;
+                if (target.Tutar != src.Tutar) target.Tutar = src.Tutar;
+                if (target.Banka != src.Banka) target.Banka = src.Banka;
+                if (target.Sube != src.Sube) target.Sube = src.Sube;
+                if (target.CekTuru != src.CekTuru) target.CekTuru = src.CekTuru;
+                if (target.Durum != src.Durum) target.Durum = src.Durum;
+                if (target.SeriNo != src.SeriNo) target.SeriNo = src.SeriNo;
+                if (target.Aciklama != src.Aciklama) target.Aciklama = src.Aciklama;
+                if (target.CariId != src.CariId) target.CariId = src.CariId;
+                if (target.CariUnvan != src.CariUnvan) target.CariUnvan = src.CariUnvan;
+                if (target.YonlendirilenCariId != src.YonlendirilenCariId) target.YonlendirilenCariId = src.YonlendirilenCariId;
+            });
+
+            if (selectedId.HasValue)
+            {
+                var reselected = Cekler.FirstOrDefault(c => c.Id == selectedId.Value);
+                if (reselected != null && SelectedCek != reselected)
+                {
+                    SelectedCek = reselected;
+                }
+            }
+
             TotalCekTutari = Cekler.Sum(x => x.Tutar);
         });
     }

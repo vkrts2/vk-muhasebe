@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Avalonia.ViewModels;
 
@@ -157,7 +158,16 @@ public partial class VadeTakipViewModel : ViewModelBase
                 break;
         }
 
-        Vadeler = new ObservableCollection<VadeItem>(result);
+        Vadeler.SyncWith(result, x => $"{x.Type}_{x.SourceId}", (target, src) =>
+        {
+            if (target.VadeTarihi != src.VadeTarihi) target.VadeTarihi = src.VadeTarihi;
+            if (target.Tutar != src.Tutar) target.Tutar = src.Tutar;
+            if (target.Tur != src.Tur) target.Tur = src.Tur;
+            if (target.CariAdi != src.CariAdi) target.CariAdi = src.CariAdi;
+            if (target.IsIncoming != src.IsIncoming) target.IsIncoming = src.IsIncoming;
+            if (target.CariId != src.CariId) target.CariId = src.CariId;
+        });
+
         ToplamAlacak = Vadeler.Where(x => x.IsIncoming).Sum(x => x.Tutar);
         ToplamBorc = Vadeler.Where(x => !x.IsIncoming).Sum(x => x.Tutar);
         GecikmisAdet = Vadeler.Count(x => x.KalanGun < 0);
@@ -243,11 +253,11 @@ public partial class VadeTakipViewModel : ViewModelBase
 public partial class VadeItem : ObservableObject
 {
     [ObservableProperty] private bool _isChecked;
-    public string Type { get; set; } = ""; // Fatura, Cek, Senet
-    public int SourceId { get; set; }
-    public int CariId { get; set; }
-    public string Tur { get; set; } = "";
-    public string CariAdi { get; set; } = "";
+    [ObservableProperty] private string _type = ""; // Fatura, Cek, Senet
+    [ObservableProperty] private int _sourceId;
+    [ObservableProperty] private int _cariId;
+    [ObservableProperty] private string _tur = "";
+    [ObservableProperty] private string _cariAdi = "";
     
     [ObservableProperty] 
     [NotifyPropertyChangedFor(nameof(KalanGun))]
@@ -255,8 +265,8 @@ public partial class VadeItem : ObservableObject
     [NotifyPropertyChangedFor(nameof(RenkliUyari))]
     private DateTime _vadeTarihi;
 
-    public decimal Tutar { get; set; }
-    public bool IsIncoming { get; set; }
+    [ObservableProperty] private decimal _tutar;
+    [ObservableProperty] private bool _isIncoming;
     public bool RenkliUyari => KalanGun < 0; 
     
     public int KalanGun => (VadeTarihi.Date - DateTime.Today).Days;

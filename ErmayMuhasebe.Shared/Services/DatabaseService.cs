@@ -56,6 +56,7 @@ namespace ErmayMuhasebe.Services
         }
 
         private readonly CloudSyncService _sync;
+        private readonly SemaphoreSlim _syncGate = new(1, 1);
         private readonly List<IDisposable> _realtimeSubscriptions = new();
         public event Action? OnDatabaseChanged;
         public event Action<FirmaProfili>? OnFirmaProfiliChanged;
@@ -5358,7 +5359,7 @@ namespace ErmayMuhasebe.Services
                 {
                     System.Diagnostics.Debug.WriteLine($"[DatabaseService] Periodic Sync Error: {ex.Message}");
                 }
-            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15));
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
 
             System.Diagnostics.Debug.WriteLine("[DatabaseService] Cloud Sync Timer STARTED successfully.");
         }
@@ -5561,9 +5562,12 @@ namespace ErmayMuhasebe.Services
         public async Task SyncFromCloudAsync()
         {
             if (IsResetting || !IsCloudConnected) return;
-            await EnsureInitializedAsync();
-            await CleanupLocalDuplicatesAsync();
-            bool hasAnyChanges = false;
+            if (!await _syncGate.WaitAsync(0)) return;
+            try
+            {
+                await EnsureInitializedAsync();
+                await CleanupLocalDuplicatesAsync();
+                bool hasAnyChanges = false;
 
             // 0. Mobil Gelen Kutusu (Inbox) Bekleyen İşlemleri Çek ve Doğrula/İşle
             try
@@ -5777,6 +5781,7 @@ namespace ErmayMuhasebe.Services
                         }
                     }
 
+                    bool faturaChanged = false;
                     var existing = await _db.Table<Fatura>().FirstOrDefaultAsync(x => x.Id == cloudFaturaId);
                     if (existing == null)
                     {
@@ -5788,6 +5793,7 @@ namespace ErmayMuhasebe.Services
                                 await _db.InsertOrReplaceAsync(f); 
                                 Console.WriteLine($"[DatabaseService] InsertOrReplaceAsync Fatura: No={f.FaturaNo}, Result Id={f.Id}");
                                 hasAnyChanges = true; 
+                                faturaChanged = true;
                             } 
                             catch (Exception ex) 
                             { 
@@ -5803,6 +5809,7 @@ namespace ErmayMuhasebe.Services
                             f.Id = cloudFaturaId;
                             await _db.UpdateAsync(f);
                             hasAnyChanges = true;
+                            faturaChanged = true;
                         }
                         else if (f.IsDeleted)
                         {
@@ -5822,19 +5829,36 @@ namespace ErmayMuhasebe.Services
                         }
                         else
                         {
-                            bool isChanged = existing.UpdatedAt < f.UpdatedAt || 
-                                             existing.Version < f.Version ||
-                                             existing.GenelToplam != f.GenelToplam ||
-                                             existing.AraToplam != f.AraToplam ||
-                                             existing.KdvToplam != f.KdvToplam ||
-                                             existing.Tur != f.Tur || existing.Odenen != f.Odenen ||
+                            bool odenenDiffers = f.Odenen > 0 && Math.Abs(existing.Odenen - f.Odenen) > 0.01m;
+                            bool vadeDiffers = Math.Abs((existing.VadeTarihi - f.VadeTarihi).TotalMinutes) > 2;
+
+                            bool isChanged = existing.Version < f.Version ||
+                                             (existing.UpdatedAt < f.UpdatedAt && Math.Abs((existing.UpdatedAt - f.UpdatedAt).TotalMinutes) > 1) ||
+                                             Math.Abs(existing.GenelToplam - f.GenelToplam) > 0.01m ||
+                                             Math.Abs(existing.AraToplam - f.AraToplam) > 0.01m ||
+                                             Math.Abs(existing.KdvToplam - f.KdvToplam) > 0.01m ||
+                                             existing.Tur != f.Tur ||
+                                             odenenDiffers ||
                                              existing.Aciklama != f.Aciklama ||
-                                             existing.VadeTarihi != f.VadeTarihi ||
+                                             (vadeDiffers && existing.UpdatedAt <= f.UpdatedAt) ||
                                              existing.CariId != f.CariId;
 
                             if (isChanged)
                             {
                                 f.Id = cloudFaturaId;
+
+                                // Preserve local Odenen: cloud payload does not track Odenen (calculated locally via FIFO matching)
+                                if (f.Odenen == 0 && existing.Odenen > 0)
+                                {
+                                    f.Odenen = existing.Odenen;
+                                }
+
+                                // If local had a newer postponed VadeTarihi, preserve it
+                                if (existing.UpdatedAt > f.UpdatedAt && vadeDiffers)
+                                {
+                                    f.VadeTarihi = existing.VadeTarihi;
+                                }
+
                                 if (string.IsNullOrEmpty(f.DovizTuru) && !string.IsNullOrEmpty(existing.DovizTuru)) f.DovizTuru = existing.DovizTuru;
                                 if (f.DovizKuru == 0 && existing.DovizKuru != 0) f.DovizKuru = existing.DovizKuru;
                                 if (string.IsNullOrEmpty(f.OdemeSekli) && !string.IsNullOrEmpty(existing.OdemeSekli)) f.OdemeSekli = existing.OdemeSekli;
@@ -5844,26 +5868,43 @@ namespace ErmayMuhasebe.Services
                                 if (string.IsNullOrEmpty(f.BaglantiEvrakNo) && !string.IsNullOrEmpty(existing.BaglantiEvrakNo)) f.BaglantiEvrakNo = existing.BaglantiEvrakNo;
                                 await _db.UpdateAsync(f);
                                 hasAnyChanges = true;
+                                faturaChanged = true;
                             }
                         }
                     }
 
-                    if (!f.IsDeleted && (existing == null || !existing.IsDeleted))
+                    bool shouldCheckDetails = !f.IsDeleted && (existing == null || faturaChanged || ((await _db.Table<FaturaDetay>().Where(x => x.FaturaId == cloudFaturaId).CountAsync()) == 0));
+                    if (shouldCheckDetails && (existing == null || !existing.IsDeleted))
                     {
                         var details = await _sync.PullFaturaDetaylarAsync(cloudFaturaId);
-                        Console.WriteLine($"[DatabaseService] PullFaturaDetaylarAsync({cloudFaturaId}) returned: {details?.Count ?? -1}");
                         if (details != null && details.Count > 0)
                         {
                             var localDetails = await _db.Table<FaturaDetay>().Where(x => x.FaturaId == cloudFaturaId).ToListAsync();
-                            foreach (var local in localDetails) await _db.DeleteAsync(local);
-
-                            foreach (var d in details)
+                            bool detailsChanged = localDetails.Count != details.Count;
+                            if (!detailsChanged)
                             {
-                                if (d == null) continue;
-                                d.FaturaId = cloudFaturaId;
-                                await _db.InsertOrReplaceAsync(d);
-                                Console.WriteLine($"[DatabaseService] InsertOrReplace FaturaDetay: {d.StokAdi} Id={d.Id} FaturaId={d.FaturaId}");
-                                hasAnyChanges = true;
+                                for (int i = 0; i < details.Count; i++)
+                                {
+                                    var ld = localDetails[i];
+                                    var cd = details[i];
+                                    if (ld.StokId != cd.StokId || ld.Miktar != cd.Miktar || ld.BirimFiyat != cd.BirimFiyat || ld.KDVOrani != cd.KDVOrani || ld.ToplamTutar != cd.ToplamTutar)
+                                    {
+                                        detailsChanged = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (detailsChanged)
+                            {
+                                foreach (var local in localDetails) await _db.DeleteAsync(local);
+                                foreach (var d in details)
+                                {
+                                    if (d == null) continue;
+                                    d.FaturaId = cloudFaturaId;
+                                    await _db.InsertOrReplaceAsync(d);
+                                    hasAnyChanges = true;
+                                }
                             }
                         }
                     }
@@ -5972,10 +6013,21 @@ namespace ErmayMuhasebe.Services
                     if (sh == null) continue;
                     var existing = await _db.Table<StokHareket>().FirstOrDefaultAsync(x => x.Id == sh.Id);
                     if (existing == null) { await _db.InsertAsync(sh); hasAnyChanges = true; }
-                    else if (Math.Abs((existing.Tarih - sh.Tarih).TotalSeconds) > 1 || existing.Giren != sh.Giren || existing.Cikan != sh.Cikan)
+                    else
                     {
-                        await _db.UpdateAsync(sh);
-                        hasAnyChanges = true;
+                        bool isDiff = Math.Abs((existing.Tarih - sh.Tarih).TotalMinutes) > 2 || 
+                                     existing.Giren != sh.Giren || 
+                                     existing.Cikan != sh.Cikan ||
+                                     existing.Miktar != sh.Miktar ||
+                                     existing.Fiyat != sh.Fiyat ||
+                                     existing.IslemTuru != sh.IslemTuru ||
+                                     existing.EvrakNo != sh.EvrakNo ||
+                                     existing.Aciklama != sh.Aciklama;
+                        if (isDiff)
+                        {
+                            await _db.UpdateAsync(sh);
+                            hasAnyChanges = true;
+                        }
                     }
                 }
             }
@@ -6062,10 +6114,20 @@ namespace ErmayMuhasebe.Services
 
                     var existing = await _db.Table<CariHareket>().FirstOrDefaultAsync(x => x.Id == ch.Id);
                     if (existing == null) { await _db.InsertOrReplaceAsync(ch); hasAnyChanges = true; }
-                    else if (Math.Abs((existing.Tarih - ch.Tarih).TotalSeconds) > 1 || existing.Borc != ch.Borc || existing.Alacak != ch.Alacak)
+                    else
                     {
-                        await _db.UpdateAsync(ch);
-                        hasAnyChanges = true;
+                        bool isDiff = Math.Abs((existing.Tarih - ch.Tarih).TotalMinutes) > 2 || 
+                                     existing.Borc != ch.Borc || 
+                                     existing.Alacak != ch.Alacak ||
+                                     existing.IslemTuru != ch.IslemTuru ||
+                                     existing.EvrakNo != ch.EvrakNo ||
+                                     existing.Aciklama != ch.Aciklama ||
+                                     existing.CariId != ch.CariId;
+                        if (isDiff)
+                        {
+                            await _db.UpdateAsync(ch);
+                            hasAnyChanges = true;
+                        }
                     }
                 }
             }
@@ -6164,6 +6226,7 @@ namespace ErmayMuhasebe.Services
                         }
                     }
 
+                    bool siparisChanged = false;
                     var existing = await _db.Table<Siparis>().FirstOrDefaultAsync(x => x.Id == cloudSiparisId);
                     if (existing == null)
                     {
@@ -6172,6 +6235,7 @@ namespace ErmayMuhasebe.Services
                             s.Id = cloudSiparisId;
                             await _db.InsertOrReplaceAsync(s); 
                             hasAnyChanges = true; 
+                            siparisChanged = true;
                         }
                     }
                     else
@@ -6203,24 +6267,43 @@ namespace ErmayMuhasebe.Services
                                 if (string.IsNullOrEmpty(s.BaglantiEvrakNo) && !string.IsNullOrEmpty(existing.BaglantiEvrakNo)) s.BaglantiEvrakNo = existing.BaglantiEvrakNo;
                                 await _db.UpdateAsync(s);
                                 hasAnyChanges = true;
+                                siparisChanged = true;
                             }
                         }
                     }
 
-                    if (!s.IsDeleted)
+                    bool shouldCheckSiparisDetails = !s.IsDeleted && (existing == null || siparisChanged || ((await _db.Table<SiparisDetay>().Where(x => x.SiparisId == cloudSiparisId).CountAsync()) == 0));
+                    if (shouldCheckSiparisDetails && (existing == null || !existing.IsDeleted))
                     {
                         var details = await _sync.PullSiparisDetaylarAsync(cloudSiparisId);
                         if (details != null && details.Count > 0)
                         {
                             var localDetails = await _db.Table<SiparisDetay>().Where(x => x.SiparisId == cloudSiparisId).ToListAsync();
-                            foreach (var local in localDetails) await _db.DeleteAsync(local);
-
-                            foreach(var d in details)
+                            bool detailsChanged = localDetails.Count != details.Count;
+                            if (!detailsChanged)
                             {
-                                 if (d == null) continue;
-                                 d.SiparisId = cloudSiparisId;
-                                 await _db.InsertOrReplaceAsync(d);
-                                 hasAnyChanges = true;
+                                for (int i = 0; i < details.Count; i++)
+                                {
+                                    var ld = localDetails[i];
+                                    var cd = details[i];
+                                    if (ld.StokId != cd.StokId || ld.Miktar != cd.Miktar || ld.BirimFiyat != cd.BirimFiyat || ld.Tutar != cd.Tutar)
+                                    {
+                                        detailsChanged = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (detailsChanged)
+                            {
+                                foreach (var local in localDetails) await _db.DeleteAsync(local);
+                                foreach(var d in details)
+                                {
+                                     if (d == null) continue;
+                                     d.SiparisId = cloudSiparisId;
+                                     await _db.InsertOrReplaceAsync(d);
+                                     hasAnyChanges = true;
+                                }
                             }
                         }
                     }
@@ -6277,6 +6360,7 @@ namespace ErmayMuhasebe.Services
                         }
                     }
 
+                    bool teklifChanged = false;
                     var existing = await _db.Table<Teklif>().FirstOrDefaultAsync(x => x.Id == cloudTeklifId);
                     if (existing == null)
                     {
@@ -6285,6 +6369,7 @@ namespace ErmayMuhasebe.Services
                             t.Id = cloudTeklifId;
                             await _db.InsertOrReplaceAsync(t); 
                             hasAnyChanges = true; 
+                            teklifChanged = true;
                         }
                     }
                     else
@@ -6312,24 +6397,43 @@ namespace ErmayMuhasebe.Services
                                 if (string.IsNullOrEmpty(t.OdemeBilgisi) && !string.IsNullOrEmpty(existing.OdemeBilgisi)) t.OdemeBilgisi = existing.OdemeBilgisi;
                                 await _db.UpdateAsync(t);
                                 hasAnyChanges = true;
+                                teklifChanged = true;
                             }
                         }
                     }
 
-                    if (!t.IsDeleted)
+                    bool shouldCheckTeklifDetails = !t.IsDeleted && (existing == null || teklifChanged || ((await _db.Table<TeklifDetay>().Where(x => x.TeklifId == cloudTeklifId).CountAsync()) == 0));
+                    if (shouldCheckTeklifDetails && (existing == null || !existing.IsDeleted))
                     {
                         var details = await _sync.PullTeklifDetaylarAsync(cloudTeklifId);
                         if (details != null && details.Count > 0)
                         {
                             var localDetails = await _db.Table<TeklifDetay>().Where(x => x.TeklifId == cloudTeklifId).ToListAsync();
-                            foreach (var local in localDetails) await _db.DeleteAsync(local);
-
-                            foreach(var d in details)
+                            bool detailsChanged = localDetails.Count != details.Count;
+                            if (!detailsChanged)
                             {
-                                 if (d == null) continue;
-                                 d.TeklifId = cloudTeklifId;
-                                 await _db.InsertOrReplaceAsync(d);
-                                 hasAnyChanges = true;
+                                for (int i = 0; i < details.Count; i++)
+                                {
+                                    var ld = localDetails[i];
+                                    var cd = details[i];
+                                    if (ld.StokId != cd.StokId || ld.Miktar != cd.Miktar || ld.BirimFiyat != cd.BirimFiyat || ld.Tutar != cd.Tutar)
+                                    {
+                                        detailsChanged = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (detailsChanged)
+                            {
+                                foreach (var local in localDetails) await _db.DeleteAsync(local);
+                                foreach(var d in details)
+                                {
+                                     if (d == null) continue;
+                                     d.TeklifId = cloudTeklifId;
+                                     await _db.InsertOrReplaceAsync(d);
+                                     hasAnyChanges = true;
+                                }
                             }
                         }
                     }
@@ -6762,7 +6866,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (b.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(b); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.Ad != b.Ad || existing.Kategori != b.Kategori || existing.Tur != b.Tur || existing.Yol != b.Yol || existing.Veri != b.Veri;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(b);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -6803,7 +6915,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (n.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(n); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.Title != n.Title || existing.Content != n.Content || existing.Color != n.Color || existing.IsPinned != n.IsPinned;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(n);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -6844,7 +6964,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (g.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(g); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.Baslik != g.Baslik || existing.Aciklama != g.Aciklama || existing.Durum != g.Durum || existing.Oncelik != g.Oncelik || existing.AtananPersonelId != g.AtananPersonelId;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(g);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -6885,7 +7013,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (p.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(p); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.Ad != p.Ad || existing.Soyad != p.Soyad || existing.Telefon != p.Telefon || existing.Gorevi != p.Gorevi || existing.Maas != p.Maas;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(p);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -6970,7 +7106,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (pf.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(pf); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.FirmaIsmi != pf.FirmaIsmi || existing.CariTipi != pf.CariTipi || existing.YetkiliKisi != pf.YetkiliKisi || existing.RiskLimiti != pf.RiskLimiti || existing.Aciklama != pf.Aciklama || existing.Notlar != pf.Notlar;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(pf);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -7017,7 +7161,15 @@ namespace ErmayMuhasebe.Services
                                 await _db.DeleteAsync(existing);
                                 hasAnyChanges = true;
                             }
-                            else { await _db.UpdateAsync(sf); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.FisNo != sf.FisNo || existing.Aciklama != sf.Aciklama || existing.SayimYapan != sf.SayimYapan || existing.IsApplied != sf.IsApplied || Math.Abs((existing.Tarih - sf.Tarih).TotalMinutes) > 2;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(sf);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
 
                         if (!sf.IsDeleted)
@@ -7072,7 +7224,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (k.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(k); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.CariId != k.CariId || existing.CariUnvan != k.CariUnvan || existing.Yetkili != k.Yetkili || existing.Etiket != k.Etiket || existing.Renk != k.Renk || existing.Aciklama != k.Aciklama;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(k);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -7105,7 +7265,15 @@ namespace ErmayMuhasebe.Services
                         else
                         {
                             if (d.IsDeleted) { await _db.DeleteAsync(existing); hasAnyChanges = true; }
-                            else { await _db.UpdateAsync(d); hasAnyChanges = true; }
+                            else
+                            {
+                                bool isChanged = existing.Baslik != d.Baslik || existing.Icerik != d.Icerik || existing.Tip != d.Tip || existing.FiyatBilgisi != d.FiyatBilgisi || existing.KlasorId != d.KlasorId;
+                                if (isChanged)
+                                {
+                                    await _db.UpdateAsync(d);
+                                    hasAnyChanges = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -7131,9 +7299,9 @@ namespace ErmayMuhasebe.Services
 
             try
             {
-                await RecalculateSystemBalancesAsync();
                 if (hasAnyChanges)
                 {
+                    await RecalculateSystemBalancesAsync();
                     OnDatabaseChanged?.Invoke();
                 }
             }
@@ -7142,6 +7310,11 @@ namespace ErmayMuhasebe.Services
                 System.Diagnostics.Debug.WriteLine($"[DatabaseService] Error in RecalculateSystemBalancesAsync post-sync: {ex.Message}");
             }
         }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
 
         // --- ANALYTICS ---
         public async Task<List<IncomeExpenseItem>> GetMonthlyIncomeExpenseAsync()

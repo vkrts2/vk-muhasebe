@@ -5,6 +5,7 @@ import { subscribeToPath, writeData } from '../services/firebase';
 import {
   KeyboardDoneAccessory,
   KEYBOARD_ACCESSORY_ID,
+  KeyboardDismissBar,
 } from '../components/KeyboardDoneAccessory';
 
 const formatMoney = (val: number) => {
@@ -137,6 +138,7 @@ export default function MusteriLimitScreen({ isTab = false }: { isTab?: boolean 
               <Text style={styles.saveText}>Kaydet</Text>
             </TouchableOpacity>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
       <KeyboardDoneAccessory />

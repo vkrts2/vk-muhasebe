@@ -11,7 +11,8 @@ import {
   ScrollView,
   Alert,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Keyboard
 } from 'react-native';
 import {
   Search,
@@ -52,7 +53,7 @@ import { AppleTheme } from '../theme/appleDesign';
 import { generateReportPdf } from '../services/pdfService';
 import { exportToExcel, importFromExcel } from '../services/excelService';
 import { generateInt32Id } from '../utils/IdGenerator';
-import { KeyboardDoneAccessory, KEYBOARD_ACCESSORY_ID } from '../components/KeyboardDoneAccessory';
+import { KeyboardDoneAccessory, KEYBOARD_ACCESSORY_ID, KeyboardDismissBar } from '../components/KeyboardDoneAccessory';
 
 const formatMoney = (val: number) => {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', minimumFractionDigits: 2 }).format(val || 0);
@@ -1018,9 +1019,11 @@ export default function StoklarScreen() {
                     placeholderTextColor="#888"
                     value={filterKod}
                     onChangeText={(t) => { setFilterKod(t); setCurrentPageIndex(0); }}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
                   {filterKod ? (
-                    <TouchableOpacity onPress={() => setFilterKod('')} style={{ padding: 6 }}>
+                    <TouchableOpacity onPress={() => { setFilterKod(''); Keyboard.dismiss(); }} style={{ padding: 6 }}>
                       <X color="#888" size={14} />
                     </TouchableOpacity>
                   ) : null}
@@ -1555,6 +1558,7 @@ export default function StoklarScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </View>
       </Modal>
 
@@ -1819,6 +1823,7 @@ export default function StoklarScreen() {
               </View>
             </View>
           </KeyboardAvoidingView>
+          <KeyboardDismissBar inModal={true} />
         </View>
       </Modal>
 

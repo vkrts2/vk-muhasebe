@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { KeyboardAvoidingView, Platform,  StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, PanResponder  } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, PanResponder, Keyboard } from 'react-native';
 import { Search, FileSignature, Plus, X, Save, Edit3, Trash2, Calendar, User, ShoppingBag, Share2, ChevronDown } from 'lucide-react-native';
 import { subscribeToPath, writeData, readData, mapAppToDatabase, updateDataBatch } from '../services/firebase';
 import { generateInt32Id } from '../utils/IdGenerator';
@@ -737,7 +737,14 @@ export default function SiparisFormScreen({ route, navigation }: any) {
                     placeholderTextColor="#64748B"
                     value={cariSearch}
                     onChangeText={setCariSearch}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
+                  {cariSearch ? (
+                    <TouchableOpacity onPress={() => { setCariSearch(''); Keyboard.dismiss(); }}>
+                      <X color="#94A3B8" size={18} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <FlatList initialNumToRender={20} maxToRenderPerBatch={20} windowSize={5} 
                   data={cariler.filter(c => (c.unvan || '').toLocaleLowerCase('tr-TR').includes(cariSearch.toLocaleLowerCase('tr-TR')))}
@@ -773,7 +780,14 @@ export default function SiparisFormScreen({ route, navigation }: any) {
                     autoFocus={false}
                     value={stokSearch}
                     onChangeText={setStokSearch}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
+                  {stokSearch ? (
+                    <TouchableOpacity onPress={() => { setStokSearch(''); Keyboard.dismiss(); }}>
+                      <X color="#94A3B8" size={18} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <FlatList initialNumToRender={20} maxToRenderPerBatch={20} windowSize={5} 
                   data={stoklar.filter(s => (s.stokAdi || '').toLocaleLowerCase('tr-TR').includes(stokSearch.toLocaleLowerCase('tr-TR')))}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Alert, FlatList, Modal, TextInput, Share } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Alert, FlatList, Modal, TextInput, Share, Keyboard } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { BarChart3, TrendingUp, Package, ChevronRight, X, Search, Calendar, FileText, Share2, Award, ShieldAlert, Database, FileSpreadsheet } from 'lucide-react-native';
 import { subscribeToPath } from '../services/firebase';
@@ -785,7 +785,14 @@ export default function RaporlarScreen() {
               placeholderTextColor="#64748B" 
               value={cariSearch} 
               onChangeText={setCariSearch} 
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
+            {cariSearch ? (
+              <TouchableOpacity onPress={() => { setCariSearch(''); Keyboard.dismiss(); }}>
+                <X color="#94A3B8" size={18} />
+              </TouchableOpacity>
+            ) : null}
           </View>
           <FlatList initialNumToRender={20} maxToRenderPerBatch={20} windowSize={5} 
             data={cariler.filter(c => (c.unvan || '').toLocaleLowerCase('tr-TR').includes(cariSearch.toLocaleLowerCase('tr-TR')))}

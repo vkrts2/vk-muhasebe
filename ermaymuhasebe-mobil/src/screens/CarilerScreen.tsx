@@ -15,7 +15,8 @@ import { cariSchema } from '../utils/validationSchema';
 import { AppleListRow, AppleGroupedCard } from '../components/AppleGroupedList';
 import { AppleTheme } from '../theme/appleDesign';
 import { ShimmerCardList } from '../components/Shimmer';
-import { KeyboardDoneAccessory, KEYBOARD_ACCESSORY_ID } from '../components/KeyboardDoneAccessory';
+import { KeyboardDoneAccessory, KEYBOARD_ACCESSORY_ID, KeyboardDismissBar } from '../components/KeyboardDoneAccessory';
+import { Keyboard } from 'react-native';
 
 const formatMoney = (val: number) => {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
@@ -1199,9 +1200,11 @@ export default function CarilerScreen({ route, navigation }: any) {
             placeholderTextColor="#64748B"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => { setSearchQuery(''); Keyboard.dismiss(); }}>
               <X color="#94A3B8" size={18} />
             </TouchableOpacity>
           ) : null}
@@ -1476,6 +1479,7 @@ export default function CarilerScreen({ route, navigation }: any) {
 
 
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
 
@@ -1815,6 +1819,7 @@ export default function CarilerScreen({ route, navigation }: any) {
               </TouchableOpacity>
             </ScrollView>
           </View>
+          <KeyboardDismissBar inModal={true} />
         </SafeAreaView>
       </Modal>
 

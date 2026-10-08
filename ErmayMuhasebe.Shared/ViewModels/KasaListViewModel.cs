@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -77,7 +78,25 @@ public abstract partial class KasaListViewModel : ViewModelBase
 
             await InvokeOnUIThreadAsync(() => 
             {
-                Kasalar = new ObservableCollection<BankaKart>(filtered);
+                var selectedId = SelectedKasa?.Id;
+                Kasalar.SyncWith(filtered, k => k.Id, (target, src) =>
+                {
+                    if (target.BankaAdi != src.BankaAdi) target.BankaAdi = src.BankaAdi;
+                    if (target.Yetkili != src.Yetkili) target.Yetkili = src.Yetkili;
+                    if (target.DovizTuru != src.DovizTuru) target.DovizTuru = src.DovizTuru;
+                    if (target.GuncelBakiye != src.GuncelBakiye) target.GuncelBakiye = src.GuncelBakiye;
+                    if (target.Bakiye != src.Bakiye) target.Bakiye = src.Bakiye;
+                    if (target.AcilisBakiyesi != src.AcilisBakiyesi) target.AcilisBakiyesi = src.AcilisBakiyesi;
+                });
+
+                if (selectedId.HasValue)
+                {
+                    var reselected = Kasalar.FirstOrDefault(k => k.Id == selectedId.Value);
+                    if (reselected != null && SelectedKasa != reselected)
+                    {
+                        SelectedKasa = reselected;
+                    }
+                }
             });
         }
         catch (Exception ex)

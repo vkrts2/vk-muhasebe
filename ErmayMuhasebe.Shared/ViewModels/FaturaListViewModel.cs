@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -123,7 +124,30 @@ public abstract partial class FaturaListViewModel : ViewModelBase
 
         await InvokeOnUIThreadAsync(() => 
         {
-            Faturalar = new ObservableCollection<Fatura>(filtered);
+            var selectedId = SelectedFatura?.Id;
+            Faturalar.SyncWith(filtered, f => f.Id, (target, src) =>
+            {
+                if (target.FaturaNo != src.FaturaNo) target.FaturaNo = src.FaturaNo;
+                if (target.CariUnvan != src.CariUnvan) target.CariUnvan = src.CariUnvan;
+                if (target.CariId != src.CariId) target.CariId = src.CariId;
+                if (target.Tur != src.Tur) target.Tur = src.Tur;
+                if (target.Tarih != src.Tarih) target.Tarih = src.Tarih;
+                if (target.VadeTarihi != src.VadeTarihi) target.VadeTarihi = src.VadeTarihi;
+                if (target.GenelToplam != src.GenelToplam) target.GenelToplam = src.GenelToplam;
+                if (target.AraToplam != src.AraToplam) target.AraToplam = src.AraToplam;
+                if (target.KdvToplam != src.KdvToplam) target.KdvToplam = src.KdvToplam;
+                if (target.Odenen != src.Odenen) target.Odenen = src.Odenen;
+                if (target.Aciklama != src.Aciklama) target.Aciklama = src.Aciklama;
+            });
+
+            if (selectedId.HasValue)
+            {
+                var reselected = Faturalar.FirstOrDefault(f => f.Id == selectedId.Value);
+                if (reselected != null && SelectedFatura != reselected)
+                {
+                    SelectedFatura = reselected;
+                }
+            }
         });
     }
 

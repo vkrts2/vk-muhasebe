@@ -31,7 +31,10 @@ public partial class BankaDetayViewModel : ErmayMuhasebe.Shared.ViewModels.Banka
         : base(uow, pdfService)
     {
         _ = InitializeAsync(banka);
-        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => _ = LoadHareketlerAsync());
+        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => 
+        {
+            if (!IsTransactionDialogVisible && !IsCariSecimVisible) _ = LoadHareketlerAsync();
+        });
     }
 
     [ObservableProperty] private bool _isCariSecimVisible;

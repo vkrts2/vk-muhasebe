@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, Switch } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, Switch, Keyboard } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Search, FileText, Plus, X, Save, Edit3, Trash2, Calendar, User, ShoppingBag, Share2, RefreshCw, Grid3X3, FileDown, Package } from 'lucide-react-native';
 import { subscribeToPath, writeData, readData, deleteData, mapAppToDatabase, splitAccounts, mergeKasalar } from '../services/firebase';
@@ -1060,7 +1060,14 @@ export default function FaturalarScreen({ route, navigation }: any) {
               placeholderTextColor="#64748B"
               value={searchQuery}
               onChangeText={setSearchQuery}
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => { setSearchQuery(''); Keyboard.dismiss(); }}>
+                <X color="#94A3B8" size={16} />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.dateFilterRow}>
@@ -1071,6 +1078,8 @@ export default function FaturalarScreen({ route, navigation }: any) {
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 value={startDateStr}
                 onChangeText={setStartDateStr}
+                returnKeyType="done"
+                onSubmitEditing={() => Keyboard.dismiss()}
               />
             </View>
             <Text style={styles.dateSeparator}>_</Text>
@@ -1081,6 +1090,8 @@ export default function FaturalarScreen({ route, navigation }: any) {
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 value={endDateStr}
                 onChangeText={setEndDateStr}
+                returnKeyType="done"
+                onSubmitEditing={() => Keyboard.dismiss()}
               />
             </View>
             <TouchableOpacity style={styles.refreshBtn} onPress={handleRefresh}>

@@ -15,7 +15,10 @@ public partial class KasaDetayViewModel : ErmayMuhasebe.Shared.ViewModels.KasaDe
     public KasaDetayViewModel(IUnitOfWork uow, IPdfService pdfService) 
         : base(uow, pdfService)
     {
-        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => _ = LoadHareketlerAsync());
+        WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => 
+        {
+            if (!IsTransactionDialogVisible) _ = LoadHareketlerAsync();
+        });
     }
 
     protected override void NotifyFinancialDataChanged()

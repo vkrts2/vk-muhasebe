@@ -26,6 +26,7 @@ public partial class CariListViewModel : ErmayMuhasebe.Shared.ViewModels.CariLis
         WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, async (r, m) => 
         {
             if (m.Sender == this) return;
+            if (IsTransactionDialogVisible || IsCariEkleVisible || IsEkstreOptionVisible) return;
             System.Diagnostics.Debug.WriteLine("[CariListViewModel] FinancialDataChangedMessage received. Reloading cariler silently...");
             await LoadCarilerAsync(isSilent: true);
             if (SelectedCari != null) await LoadHareketlerAsync(SelectedCari.Id);

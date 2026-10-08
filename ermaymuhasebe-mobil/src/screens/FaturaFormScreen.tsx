@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, Switch, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, FlatList, TextInput, ActivityIndicator, TouchableOpacity, Modal, ScrollView, Alert, Share, Switch, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Search, FileText, Plus, X, Save, Edit3, Trash2, Calendar, User, ShoppingBag, Share2, RefreshCw, Grid3X3, FileDown, Package, ChevronDown } from 'lucide-react-native';
 import { subscribeToPath, writeData, readData, deleteData, mapAppToDatabase, splitAccounts, mergeKasalar, updateDataBatch } from '../services/firebase';
 import { generateReportPdf } from '../services/pdfService';
@@ -1411,7 +1411,14 @@ export default function FaturaFormScreen({ route, navigation }: any) {
                     placeholderTextColor="#94A3B8"
                     value={cariSearch}
                     onChangeText={setCariSearch}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
+                  {cariSearch ? (
+                    <TouchableOpacity onPress={() => { setCariSearch(''); Keyboard.dismiss(); }}>
+                      <X color="#94A3B8" size={18} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
                   <TouchableOpacity

@@ -11,6 +11,8 @@ import { loadFirmaProfili } from './src/services/pdfService';
 import { initNotifications } from './src/services/alertService';
 
 
+import { KeyboardDismissBar } from './src/components/KeyboardDismissBar';
+
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, errorText: string }> {
   constructor(props: any) {
     super(props);
@@ -172,6 +174,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         {content}
+        <KeyboardDismissBar isRoot={true} />
       </ErrorBoundary>
     </GestureHandlerRootView>
   );

@@ -8,6 +8,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System;
+using ErmayMuhasebe.Helpers;
 
 namespace ErmayMuhasebe.Shared.ViewModels;
 
@@ -86,7 +87,29 @@ public abstract partial class BankaDetayViewModel : ViewModelBase
             
             await InvokeOnUIThreadAsync(() => 
             {
-                Hareketler = new ObservableCollection<BankaHareket>(list.OrderByDescending(h => h.Tarih));
+                var ordered = list.OrderByDescending(h => h.Tarih).ToList();
+                var selectedId = SelectedHareket?.Id;
+
+                Hareketler.SyncWith(ordered, h => h.Id, (target, src) =>
+                {
+                    if (target.Tarih != src.Tarih) target.Tarih = src.Tarih;
+                    if (target.IslemTuru != src.IslemTuru) target.IslemTuru = src.IslemTuru;
+                    if (target.EvrakNo != src.EvrakNo) target.EvrakNo = src.EvrakNo;
+                    if (target.Aciklama != src.Aciklama) target.Aciklama = src.Aciklama;
+                    if (target.Giren != src.Giren) target.Giren = src.Giren;
+                    if (target.Cikan != src.Cikan) target.Cikan = src.Cikan;
+                    if (target.Tutar != src.Tutar) target.Tutar = src.Tutar;
+                    if (target.CariId != src.CariId) target.CariId = src.CariId;
+                });
+
+                if (selectedId.HasValue)
+                {
+                    var reselected = Hareketler.FirstOrDefault(h => h.Id == selectedId.Value);
+                    if (reselected != null && SelectedHareket != reselected)
+                    {
+                        SelectedHareket = reselected;
+                    }
+                }
                 
                 decimal bakiye = _banka.AcilisBakiyesi;
                 foreach (var h in list)

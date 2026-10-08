@@ -20,6 +20,7 @@ public partial class StokListViewModel : ErmayMuhasebe.Shared.ViewModels.StokLis
         WeakReferenceMessenger.Default.Register<FinancialDataChangedMessage>(this, (r, m) => 
         {
             if (m.Sender == this) return;
+            if (IsTransactionWindowVisible || IsAddGroupVisible || IsEditingTransaction) return;
             _ = LoadStoklarAsync(isSilent: true);
         });
     }
